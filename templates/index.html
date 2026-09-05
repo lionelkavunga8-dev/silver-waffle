@@ -3,40 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCNA 200-301 Practice Generator</title>
+    <title>CCNA 200-301 Exam Simulator & AI Agent</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; background: #f4f6f9; color: #333; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 850px; margin: 30px auto; padding: 20px; background: #f4f6f9; color: #333; }
         .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .form-group { margin-bottom: 15px; }
         label { display: block; font-weight: bold; margin-bottom: 5px; }
         select, button { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 15px; }
         button { background: #0070ad; color: #fff; border: none; cursor: pointer; font-weight: bold; margin-top: 10px; }
         button:hover { background: #005073; }
+        .agent-btn { background: #673ab7; margin-bottom: 20px; }
+        .agent-btn:hover { background: #512da8; }
         .card { border-left: 5px solid #0070ad; background: #fafafa; padding: 15px; margin-top: 20px; border-radius: 4px; }
         .option-item { margin-bottom: 8px; }
-        .feedback { display: none; padding: 12px; margin-top: 12px; border-radius: 4px; font-size: 14px; }
-        .feedback.correct { background: #e8f5e9; border-left: 4px solid #2e7d32; color: #1b5e20; }
-        .feedback.incorrect { background: #ffebee; border-left: 4px solid #c62828; color: #b71c1c; }
+        .explanation { display: none; padding: 10px; margin-top: 10px; border-radius: 4px; font-size: 14px; background: #e8f4f8; border-left: 3px solid #009688; }
         .q-number { font-weight: bold; color: #0070ad; margin-bottom: 5px; }
-        .check-btn { width: auto; padding: 6px 14px; background: #333; font-size: 14px; }
-        .check-btn:hover { background: #555; }
+        .score-banner { display: none; padding: 20px; margin-bottom: 25px; border-radius: 6px; text-align: center; font-size: 18px; }
+        .score-banner.passed { background: #e8f5e9; border: 2px solid #2e7d32; color: #1b5e20; }
+        .score-banner.failed { background: #ffebee; border: 2px solid #c62828; color: #b71c1c; }
+        .submit-exam-btn { background: #2e7d32; font-size: 18px; padding: 15px; margin-top: 30px; }
+        .submit-exam-btn:hover { background: #1b5e20; }
+        .agent-report-box { display: none; background: #ede7f6; border: 2px solid #673ab7; padding: 20px; border-radius: 6px; margin-bottom: 25px; white-space: pre-line; line-height: 1.5; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>CCNA 200-301 Practice Generator</h2>
+    <h2>CCNA 200-301 Exam Simulator & AI Agent</h2>
+
+    <button class="agent-btn" onclick="fetchAIAgentReport()">🤖 Ask AI Progress Agent: Where Do I Need to Improve?</button>
+    <div id="agentReportBox" class="agent-report-box"></div>
+
+    <hr style="margin: 25px 0; border: 0; border-top: 1px solid #ddd;">
 
     <div class="form-group">
         <label for="topic">Select CCNA Domain:</label>
         <select id="topic">
             <option value="All Domains (Full Exam)">All Domains (Mixed Comprehensive)</option>
-            <option value="1.0 Network Fundamentals (20%)">1.0 Network Fundamentals (20%)</option>
-            <option value="2.0 Network Access (20%)">2.0 Network Access (20%)</option>
-            <option value="3.0 IP Connectivity (25%)">3.0 IP Connectivity (25%)</option>
-            <option value="4.0 IP Services (10%)">4.0 IP Services (10%)</option>
-            <option value="5.0 Security Fundamentals (15%)">5.0 Security Fundamentals (15%)</option>
-            <option value="6.0 Automation & Programmability (10%)">6.0 Automation & Programmability (10%)</option>
+            <option value="1.0 Network Fundamentals">1.0 Network Fundamentals (20%)</option>
+            <option value="2.0 Network Access">2.0 Network Access (20%)</option>
+            <option value="3.0 IP Connectivity">3.0 IP Connectivity (25%)</option>
+            <option value="4.0 IP Services">4.0 IP Services (10%)</option>
+            <option value="5.0 Security Fundamentals">5.0 Security Fundamentals (15%)</option>
+            <option value="6.0 Automation & Programmability">6.0 Automation & Programmability (10%)</option>
         </select>
     </div>
 
@@ -46,25 +55,43 @@
             <option value="1">1 Question (Quick Practice)</option>
             <option value="5">5 Questions</option>
             <option value="20">20 Questions (Domain Quiz)</option>
-            <option value="50">50 Questions (Half-Length Practice Exam)</option>
+            <option value="50">50 Questions (Half-Length Exam)</option>
+            <option value="100">100 Questions (Full CCNA Mock Exam)</option>
         </select>
     </div>
 
     <button onclick="generateExam()">Generate Practice Exam</button>
     
     <div id="status" style="margin-top: 15px; font-weight: bold; color: #555;"></div>
+    <div id="scoreBanner" class="score-banner"></div>
     <div id="output"></div>
 </div>
 
 <script>
 let currentQuestions = [];
 
+async function fetchAIAgentReport() {
+    const reportBox = document.getElementById('agentReportBox');
+    reportBox.style.display = "block";
+    reportBox.innerText = "Analyzing your historical exam answers across the 6 CCNA domains...";
+
+    try {
+        const res = await fetch('/ai-progress-agent');
+        const data = await res.json();
+        reportBox.innerText = data.report || data.error;
+    } catch (err) {
+        reportBox.innerText = "Error fetching AI report: " + err.message;
+    }
+}
+
 async function generateExam() {
     const topic = document.getElementById('topic').value;
     const count = parseInt(document.getElementById('count').value);
     const status = document.getElementById('status');
     const output = document.getElementById('output');
+    const scoreBanner = document.getElementById('scoreBanner');
 
+    scoreBanner.style.display = "none";
     status.innerText = `Generating ${count} CCNA question(s)... Please wait.`;
     output.innerHTML = "";
 
@@ -78,9 +105,9 @@ async function generateExam() {
         currentQuestions = await res.json();
         if (currentQuestions.error) throw new Error(currentQuestions.error);
 
-        status.innerText = `Generated ${currentQuestions.length} Question(s):`;
+        status.innerText = `Exam Loaded: ${currentQuestions.length} Questions. Answer all questions below and click "Submit Final Exam".`;
 
-        output.innerHTML = currentQuestions.map((q, idx) => `
+        let htmlContent = currentQuestions.map((q, idx) => `
             <div class="card" id="card_${idx}">
                 <div class="q-number">Question ${idx + 1}</div>
                 <p><strong>${q.question}</strong></p>
@@ -91,44 +118,74 @@ async function generateExam() {
                         </label>
                     </div>
                 `).join('')}
-                <button class="check-btn" onclick="checkAnswer(${idx})">Submit Answer</button>
-                <div id="feedback_${idx}" class="feedback"></div>
+                <div id="expl_${idx}" class="explanation">
+                    <strong>Correct Answer: ${q.answer}</strong>
+                    <p>${q.explanation}</p>
+                </div>
             </div>
         `).join('');
+
+        htmlContent += `<button class="submit-exam-btn" onclick="submitExam()">Submit Final Exam</button>`;
+        output.innerHTML = htmlContent;
 
     } catch (err) {
         status.innerText = "Error: " + err.message;
     }
 }
 
-function checkAnswer(idx) {
-    const selectedOption = document.querySelector(`input[name="q_${idx}"]:checked`);
-    const feedbackBox = document.getElementById(`feedback_${idx}`);
-    const questionData = currentQuestions[idx];
+async function submitExam() {
+    let correctCount = 0;
+    let totalQuestions = currentQuestions.length;
+    let missedQuestionsList = [];
 
-    if (!selectedOption) {
-        alert("Please select an answer before submitting.");
-        return;
-    }
+    currentQuestions.forEach((q, idx) => {
+        const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
+        const explBox = document.getElementById(`expl_${idx}`);
+        explBox.style.display = "block"; // Reveal explanations
 
-    const userAnswer = selectedOption.value.trim().toUpperCase();
-    const correctAnswer = questionData.answer.trim().charAt(0).toUpperCase();
+        const userAnswer = selected ? selected.value.trim().toUpperCase() : "NONE";
+        const correctAnswer = q.answer.trim().charAt(0).toUpperCase();
 
-    feedbackBox.style.display = "block";
+        if (userAnswer === correctAnswer) {
+            correctCount++;
+        } else {
+            missedQuestionsList.push({
+                question: q.question,
+                user_answered: userAnswer,
+                correct_answer: correctAnswer,
+                explanation: q.explanation
+            });
+        }
+    });
 
-    if (userAnswer === correctAnswer) {
-        feedbackBox.className = "feedback correct";
-        feedbackBox.innerHTML = `
-            <strong>Correct! (Selected: ${userAnswer})</strong>
-            <p>${questionData.explanation}</p>
-        `;
+    const percentage = parseFloat(((correctCount / totalQuestions) * 100).toFixed(2));
+    const passed = percentage >= 85.0;
+    const topic = document.getElementById('topic').value;
+
+    const banner = document.getElementById('scoreBanner');
+    banner.style.display = "block";
+    
+    if (passed) {
+        banner.className = "score-banner passed";
+        banner.innerHTML = `<h2>🎉 PASSED! Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Congratulations! You met or exceeded the 85% passing requirement.</p>`;
     } else {
-        feedbackBox.className = "feedback incorrect";
-        feedbackBox.innerHTML = `
-            <strong>Incorrect. You selected ${userAnswer}, but the correct answer is ${correctAnswer}.</strong>
-            <p>${questionData.explanation}</p>
-        `;
+        banner.className = "score-banner failed";
+        banner.innerHTML = `<h2>❌ FAILED. Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Passing requirement is 85.0%. Review the explanations below and check your AI Progress Agent report!</p>`;
     }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Save session details including missed questions for the AI agent
+    await fetch('/save-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            topic: topic,
+            score: correctCount,
+            total: totalQuestions,
+            missed_questions: missedQuestionsList
+        })
+    });
 }
 </script>
 
