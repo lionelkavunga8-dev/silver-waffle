@@ -1,11 +1,11 @@
 import os
-import time
 import sqlite3
 import json
 import uuid
 import secrets
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, session
+from werkzeug.exceptions import HTTPException
 from dotenv import load_dotenv
 from google import genai
 
@@ -24,9 +24,19 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 client = genai.Client(api_key=api_key)
 
+
+@app.errorhandler(Exception)
+def handle_any_error(e):
+    # Guarantees every response is JSON, even for errors this code doesn't
+    # anticipate (proxy timeouts aside) - the frontend always calls
+    # res.json() and should never receive an HTML error page.
+    if isinstance(e, HTTPException):
+        return jsonify({"error": e.description}), e.code
+    return jsonify({"error": f"Server error: {e}"}), 500
+
+
 DB_NAME = "exam_progress.db"
 MODEL_NAME = "gemini-3.6-flash"
-GENERATION_BATCH_SIZE = 20   # keeps each Gemini call small & reliable
 MAX_QUESTIONS_PER_REQUEST = 100
 
 CCNA_DOMAINS = [
@@ -118,7 +128,32 @@ def _validate_question(q):
     return True
 
 
-def _generate_batch(topic, n, max_retries=3):
+class QuotaExceededError(Exception):
+    """Raised when Gemini returns 429/RESOURCE_EXHAUSTED. Never worth
+    retrying automatically - free-tier daily caps don't clear in seconds."""
+    pass
+
+
+def _is_quota_error(err_msg):
+    lowered = err_msg.lower()
+    return "429" in err_msg or "resource_exhausted" in lowered or "quota" in lowered
+
+
+def _friendly_quota_message(err_msg):
+    return (
+        "You've hit the Gemini API free-tier daily request limit for this "
+        "project (the account is capped, independent of how many questions "
+        "you asked for). Wait for the quota to reset, or add billing to "
+        "your Google AI Studio project to raise the limit. "
+        "See https://ai.google.dev/gemini-api/docs/rate-limits for details."
+    )
+
+
+def _call_gemini_for_questions(topic, n):
+    """A single Gemini call requesting up to `n` questions. Not chunked -
+    gemini-3.6-flash's context window comfortably fits 100 questions in one
+    request, and every extra call eats into the (very small) free-tier
+    daily quota."""
     domain_instruction = (
         f'Every question must belong to the domain "{topic}".'
         if topic in CCNA_DOMAINS
@@ -142,36 +177,26 @@ Return STRICTLY a JSON array (no markdown, no commentary, no code fences) matchi
 
 Vary which letter (A/B/C/D) holds the correct answer across questions - do not always place it first."""
 
-    delay = 2
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-                config={"response_mime_type": "application/json"},
-            )
-            parsed = _extract_json_array(response.text)
-            if not isinstance(parsed, list):
-                raise ValueError("Model did not return a JSON array")
-            valid = [q for q in parsed if _validate_question(q)]
-            if not valid:
-                raise ValueError("Model response contained no valid questions")
-            return valid
-        except Exception as e:
-            last_error = e
-            err_msg = str(e)
-            retryable = (
-                "503" in err_msg or "UNAVAILABLE" in err_msg
-                or "rate limit" in err_msg.lower()
-                or isinstance(e, (json.JSONDecodeError, ValueError))
-            )
-            if retryable and attempt < max_retries - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            break
-    raise RuntimeError(f"Gemini API Error: {last_error}")
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={"response_mime_type": "application/json"},
+        )
+    except Exception as e:
+        err_msg = str(e)
+        if _is_quota_error(err_msg):
+            raise QuotaExceededError(_friendly_quota_message(err_msg))
+        raise RuntimeError(f"Gemini API Error: {err_msg}")
+
+    try:
+        parsed = _extract_json_array(response.text)
+        if not isinstance(parsed, list):
+            raise ValueError("Model did not return a JSON array")
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"Gemini returned malformed data: {e}")
+
+    return [q for q in parsed if _validate_question(q)]
 
 
 @app.route("/generate-exam", methods=["POST"])
@@ -185,20 +210,25 @@ def generate_exam():
 
     count = max(1, min(count, MAX_QUESTIONS_PER_REQUEST))
 
-    questions = []
-    remaining = count
     try:
-        while remaining > 0:
-            batch_size = min(GENERATION_BATCH_SIZE, remaining)
-            batch = _generate_batch(topic, batch_size)
-            questions.extend(batch)
-            remaining -= batch_size
+        questions = _call_gemini_for_questions(topic, count)
+        # Only make a second call if the first one came back meaningfully
+        # short (e.g. malformed/truncated items got filtered out) - one
+        # follow-up request max, to bound quota usage at 2 calls/exam.
+        shortfall = count - len(questions)
+        if shortfall > 0 and len(questions) > 0:
+            try:
+                extra = _call_gemini_for_questions(topic, shortfall)
+                questions.extend(extra)
+            except (QuotaExceededError, RuntimeError):
+                pass  # return what we already have rather than fail the exam
+    except QuotaExceededError as e:
+        return jsonify({"error": str(e)}), 429
     except RuntimeError as e:
-        if questions:
-            # We at least got some usable questions from earlier batches -
-            # better to hand those back than fail the whole exam.
-            return jsonify(questions), 200
         return jsonify({"error": str(e)}), 500
+
+    if not questions:
+        return jsonify({"error": "Gemini did not return any usable questions. Please try again."}), 500
 
     return jsonify(questions), 200
 
@@ -311,7 +341,14 @@ Provide, using clean markdown-style headings:
 
 Keep it concise and encouraging but honest.
 """
-        response = client.models.generate_content(model=MODEL_NAME, contents=agent_prompt)
+        try:
+            response = client.models.generate_content(model=MODEL_NAME, contents=agent_prompt)
+        except Exception as e:
+            err_msg = str(e)
+            if _is_quota_error(err_msg):
+                return jsonify({"error": _friendly_quota_message(err_msg)}), 429
+            raise
+
         return jsonify({"report": response.text, "domain_totals": domain_totals})
 
     except Exception as e:
