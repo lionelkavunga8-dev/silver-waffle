@@ -11,19 +11,36 @@
         label { display: block; font-weight: bold; margin-bottom: 5px; }
         select, button { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 15px; }
         button { background: #0070ad; color: #fff; border: none; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        button:hover { background: #005073; }
-        .agent-btn { background: #673ab7; margin-bottom: 20px; }
-        .agent-btn:hover { background: #512da8; }
+        button:hover:not(:disabled) { background: #005073; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .agent-btn { background: #673ab7; margin-bottom: 10px; }
+        .agent-btn:hover:not(:disabled) { background: #512da8; }
+        .secondary-btn { background: #607d8b; }
+        .secondary-btn:hover:not(:disabled) { background: #455a64; }
         .card { border-left: 5px solid #0070ad; background: #fafafa; padding: 15px; margin-top: 20px; border-radius: 4px; }
+        .card.missed { border-left-color: #c62828; }
+        .card.correct { border-left-color: #2e7d32; }
         .option-item { margin-bottom: 8px; }
         .explanation { display: none; padding: 10px; margin-top: 10px; border-radius: 4px; font-size: 14px; background: #e8f4f8; border-left: 3px solid #009688; }
-        .q-number { font-weight: bold; color: #0070ad; margin-bottom: 5px; }
+        .q-number { font-weight: bold; color: #0070ad; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .domain-tag { font-weight: normal; font-size: 12px; color: #888; }
         .score-banner { display: none; padding: 20px; margin-bottom: 25px; border-radius: 6px; text-align: center; font-size: 18px; }
         .score-banner.passed { background: #e8f5e9; border: 2px solid #2e7d32; color: #1b5e20; }
         .score-banner.failed { background: #ffebee; border: 2px solid #c62828; color: #b71c1c; }
         .submit-exam-btn { background: #2e7d32; font-size: 18px; padding: 15px; margin-top: 30px; }
-        .submit-exam-btn:hover { background: #1b5e20; }
-        .agent-report-box { display: none; background: #ede7f6; border: 2px solid #673ab7; padding: 20px; border-radius: 6px; margin-bottom: 25px; white-space: pre-line; line-height: 1.5; }
+        .submit-exam-btn:hover:not(:disabled) { background: #1b5e20; }
+        .agent-report-box { display: none; background: #ede7f6; border: 2px solid #673ab7; padding: 20px; border-radius: 6px; margin-bottom: 15px; white-space: pre-line; line-height: 1.5; }
+        .domain-breakdown { display: none; margin: 20px 0; }
+        .domain-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 14px; }
+        .domain-row .label { flex: 0 0 230px; }
+        .domain-bar-bg { flex: 1; background: #e0e0e0; border-radius: 4px; height: 14px; overflow: hidden; }
+        .domain-bar-fill { height: 100%; background: #0070ad; }
+        .domain-row .pct { flex: 0 0 60px; text-align: right; font-weight: bold; }
+        .history-box { display: none; margin-bottom: 20px; font-size: 14px; }
+        .history-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
+        .toggle-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+        .toggle-row input { width: auto; }
+        .unanswered-warning { color: #b71c1c; font-weight: bold; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -31,8 +48,10 @@
 <div class="container">
     <h2>CCNA 200-301 Exam Simulator & AI Agent</h2>
 
-    <button class="agent-btn" onclick="fetchAIAgentReport()">🤖 Ask AI Progress Agent: Where Do I Need to Improve?</button>
+    <button class="agent-btn" id="agentBtn" onclick="fetchAIAgentReport()">🤖 Ask AI Progress Agent: Where Do I Need to Improve?</button>
+    <button class="secondary-btn" id="historyBtn" onclick="toggleHistory()">📊 View My Exam History</button>
     <div id="agentReportBox" class="agent-report-box"></div>
+    <div id="historyBox" class="history-box"></div>
 
     <hr style="margin: 25px 0; border: 0; border-top: 1px solid #ddd;">
 
@@ -60,27 +79,79 @@
         </select>
     </div>
 
-    <button onclick="generateExam()">Generate Practice Exam</button>
-    
+    <button id="generateBtn" onclick="generateExam()">Generate Practice Exam</button>
+
     <div id="status" style="margin-top: 15px; font-weight: bold; color: #555;"></div>
     <div id="scoreBanner" class="score-banner"></div>
+    <div id="domainBreakdown" class="domain-breakdown"></div>
+
+    <div class="toggle-row" id="reviewToggleRow" style="display:none;">
+        <input type="checkbox" id="reviewOnlyToggle" onchange="applyReviewFilter()">
+        <label for="reviewOnlyToggle" style="display:inline; font-weight:normal;">Show missed questions only</label>
+    </div>
+
     <div id="output"></div>
+    <div id="unansweredWarning" class="unanswered-warning"></div>
 </div>
 
 <script>
 let currentQuestions = [];
+let examSubmitted = false;
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+}
+
+function setButtonLoading(btn, isLoading, loadingText, defaultText) {
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? loadingText : defaultText;
+}
 
 async function fetchAIAgentReport() {
+    const btn = document.getElementById('agentBtn');
     const reportBox = document.getElementById('agentReportBox');
+    setButtonLoading(btn, true, 'Analyzing...', '🤖 Ask AI Progress Agent: Where Do I Need to Improve?');
     reportBox.style.display = "block";
-    reportBox.innerText = "Analyzing your historical exam answers across the 6 CCNA domains...";
+    reportBox.textContent = "Analyzing your historical exam answers across the 6 CCNA domains...";
 
     try {
         const res = await fetch('/ai-progress-agent');
         const data = await res.json();
-        reportBox.innerText = data.report || data.error;
+        reportBox.textContent = data.report || data.error || "No report available.";
     } catch (err) {
-        reportBox.innerText = "Error fetching AI report: " + err.message;
+        reportBox.textContent = "Error fetching AI report: " + err.message;
+    } finally {
+        setButtonLoading(btn, false, '', '🤖 Ask AI Progress Agent: Where Do I Need to Improve?');
+    }
+}
+
+let historyLoaded = false;
+async function toggleHistory() {
+    const box = document.getElementById('historyBox');
+    if (box.style.display === "block") {
+        box.style.display = "none";
+        return;
+    }
+    box.style.display = "block";
+    box.textContent = "Loading history...";
+    try {
+        const res = await fetch('/history');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        if (!data.length) {
+            box.textContent = "No past exam attempts yet.";
+            return;
+        }
+        box.innerHTML = data.map(s => `
+            <div class="history-row">
+                <span>${escapeHtml(s.timestamp)} — ${escapeHtml(s.topic)}</span>
+                <span>${s.score}/${s.total} (${s.percentage}%) ${s.status === 'PASSED' ? '✅' : '❌'}</span>
+            </div>
+        `).join('');
+    } catch (err) {
+        box.textContent = "Error loading history: " + err.message;
     }
 }
 
@@ -90,10 +161,19 @@ async function generateExam() {
     const status = document.getElementById('status');
     const output = document.getElementById('output');
     const scoreBanner = document.getElementById('scoreBanner');
+    const domainBreakdown = document.getElementById('domainBreakdown');
+    const reviewToggleRow = document.getElementById('reviewToggleRow');
+    const unansweredWarning = document.getElementById('unansweredWarning');
+    const genBtn = document.getElementById('generateBtn');
 
     scoreBanner.style.display = "none";
-    status.innerText = `Generating ${count} CCNA question(s)... Please wait.`;
+    domainBreakdown.style.display = "none";
+    reviewToggleRow.style.display = "none";
+    unansweredWarning.style.display = "none";
+    examSubmitted = false;
+    status.innerText = `Generating ${count} CCNA question(s)... this can take a little while for larger exams.`;
     output.innerHTML = "";
+    setButtonLoading(genBtn, true, 'Generating...', 'Generate Practice Exam');
 
     try {
         const res = await fetch('/generate-exam', {
@@ -104,57 +184,100 @@ async function generateExam() {
 
         currentQuestions = await res.json();
         if (currentQuestions.error) throw new Error(currentQuestions.error);
+        if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
+            throw new Error("No questions were generated. Please try again.");
+        }
 
         status.innerText = `Exam Loaded: ${currentQuestions.length} Questions. Answer all questions below and click "Submit Final Exam".`;
 
         let htmlContent = currentQuestions.map((q, idx) => `
             <div class="card" id="card_${idx}">
-                <div class="q-number">Question ${idx + 1}</div>
-                <p><strong>${q.question}</strong></p>
+                <div class="q-number">
+                    <span>Question ${idx + 1}</span>
+                    <span class="domain-tag">${escapeHtml(q.domain || '')}</span>
+                </div>
+                <p><strong>${escapeHtml(q.question)}</strong></p>
                 ${q.options.map((opt, optIdx) => `
                     <div class="option-item">
                         <label style="font-weight: normal; cursor: pointer;">
-                            <input type="radio" name="q_${idx}" value="${opt.charAt(0)}"> ${opt}
+                            <input type="radio" name="q_${idx}" value="${escapeHtml(opt.charAt(0))}"> ${escapeHtml(opt)}
                         </label>
                     </div>
                 `).join('')}
                 <div id="expl_${idx}" class="explanation">
-                    <strong>Correct Answer: ${q.answer}</strong>
-                    <p>${q.explanation}</p>
+                    <strong>Correct Answer: ${escapeHtml(q.answer)}</strong>
+                    <p>${escapeHtml(q.explanation)}</p>
                 </div>
             </div>
         `).join('');
 
-        htmlContent += `<button class="submit-exam-btn" onclick="submitExam()">Submit Final Exam</button>`;
+        htmlContent += `<button class="submit-exam-btn" id="submitBtn" onclick="submitExam()">Submit Final Exam</button>`;
         output.innerHTML = htmlContent;
 
     } catch (err) {
         status.innerText = "Error: " + err.message;
+    } finally {
+        setButtonLoading(genBtn, false, '', 'Generate Practice Exam');
     }
 }
 
+function countUnanswered() {
+    let unanswered = 0;
+    currentQuestions.forEach((q, idx) => {
+        if (!document.querySelector(`input[name="q_${idx}"]:checked`)) unanswered++;
+    });
+    return unanswered;
+}
+
 async function submitExam() {
+    const unansweredWarning = document.getElementById('unansweredWarning');
+    const unanswered = countUnanswered();
+    if (unanswered > 0 && !submitExam._confirmed) {
+        submitExam._confirmed = true;
+        unansweredWarning.style.display = "block";
+        unansweredWarning.textContent = `You have ${unanswered} unanswered question(s). Click "Submit Final Exam" again to submit anyway, or go back and answer them.`;
+        return;
+    }
+    submitExam._confirmed = false;
+    unansweredWarning.style.display = "none";
+
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) setButtonLoading(submitBtn, true, 'Submitting...', 'Submit Final Exam');
+
     let correctCount = 0;
     let totalQuestions = currentQuestions.length;
     let missedQuestionsList = [];
+    const domainStats = {};
 
     currentQuestions.forEach((q, idx) => {
         const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
         const explBox = document.getElementById(`expl_${idx}`);
+        const cardEl = document.getElementById(`card_${idx}`);
         explBox.style.display = "block"; // Reveal explanations
 
         const userAnswer = selected ? selected.value.trim().toUpperCase() : "NONE";
         const correctAnswer = q.answer.trim().charAt(0).toUpperCase();
+        const domain = q.domain || "Unspecified";
 
-        if (userAnswer === correctAnswer) {
+        if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0 };
+        domainStats[domain].total++;
+
+        const isCorrect = userAnswer === correctAnswer;
+        if (isCorrect) {
             correctCount++;
+            domainStats[domain].correct++;
+            cardEl.classList.add('correct');
+            cardEl.dataset.missed = "false";
         } else {
             missedQuestionsList.push({
                 question: q.question,
+                domain: domain,
                 user_answered: userAnswer,
                 correct_answer: correctAnswer,
                 explanation: q.explanation
             });
+            cardEl.classList.add('missed');
+            cardEl.dataset.missed = "true";
         }
     });
 
@@ -164,7 +287,7 @@ async function submitExam() {
 
     const banner = document.getElementById('scoreBanner');
     banner.style.display = "block";
-    
+
     if (passed) {
         banner.className = "score-banner passed";
         banner.innerHTML = `<h2>🎉 PASSED! Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Congratulations! You met or exceeded the 85% passing requirement.</p>`;
@@ -173,18 +296,55 @@ async function submitExam() {
         banner.innerHTML = `<h2>❌ FAILED. Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Passing requirement is 85.0%. Review the explanations below and check your AI Progress Agent report!</p>`;
     }
 
+    // Domain breakdown bars
+    const domainBreakdown = document.getElementById('domainBreakdown');
+    const rows = Object.entries(domainStats).map(([domain, s]) => {
+        const pct = s.total ? Math.round((s.correct / s.total) * 100) : 0;
+        return `
+            <div class="domain-row">
+                <span class="label">${escapeHtml(domain)}</span>
+                <div class="domain-bar-bg"><div class="domain-bar-fill" style="width:${pct}%; background:${pct >= 85 ? '#2e7d32' : (pct >= 60 ? '#f9a825' : '#c62828')};"></div></div>
+                <span class="pct">${s.correct}/${s.total} (${pct}%)</span>
+            </div>`;
+    }).join('');
+    domainBreakdown.innerHTML = `<h3 style="margin-bottom:10px;">Score by Domain</h3>${rows}`;
+    domainBreakdown.style.display = "block";
+
+    document.getElementById('reviewToggleRow').style.display = missedQuestionsList.length ? "flex" : "none";
+    document.getElementById('reviewOnlyToggle').checked = false;
+
+    if (submitBtn) {
+        submitBtn.style.display = "none";
+    }
+    examSubmitted = true;
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // Save session details including missed questions for the AI agent
-    await fetch('/save-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            topic: topic,
-            score: correctCount,
-            total: totalQuestions,
-            missed_questions: missedQuestionsList
-        })
+    // Save session details (score + domain stats) for the AI agent
+    try {
+        await fetch('/save-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: topic,
+                score: correctCount,
+                total: totalQuestions,
+                missed_questions: missedQuestionsList,
+                domain_stats: domainStats
+            })
+        });
+    } catch (err) {
+        console.error("Failed to save session:", err);
+    }
+}
+
+function applyReviewFilter() {
+    const onlyMissed = document.getElementById('reviewOnlyToggle').checked;
+    currentQuestions.forEach((q, idx) => {
+        const cardEl = document.getElementById(`card_${idx}`);
+        if (!cardEl) return;
+        const missed = cardEl.dataset.missed === "true";
+        cardEl.style.display = (onlyMissed && !missed) ? "none" : "";
     });
 }
 </script>
