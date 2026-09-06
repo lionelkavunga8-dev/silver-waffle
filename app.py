@@ -77,6 +77,15 @@ def init_db():
             domain_stats TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tutor_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            cumulative_total_at_session INTEGER,
+            report_text TEXT
+        )
+    ''')
     # Lightweight migration in case an older DB file already exists on disk
     # (e.g. a previous deploy) without the newer columns.
     cursor.execute("PRAGMA table_info(exam_sessions)")
@@ -502,6 +511,145 @@ Write 3-4 sentences, encouraging but honest: what's working, and specifically wh
 
         return jsonify({"report": report_text, "journey": journey})
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+TUTOR_UNLOCK_THRESHOLD = 100
+
+
+def _tutor_progress(sid):
+    """Pure Python, zero API calls - safe to check as often as the UI wants."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COALESCE(SUM(total), 0) FROM exam_sessions WHERE session_id = ?", (sid,))
+    lifetime_total = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT cumulative_total_at_session FROM tutor_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+        (sid,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    last_tutor_total = row[0] if row else 0
+    since_unlock = lifetime_total - last_tutor_total
+    return {
+        "lifetime_total": lifetime_total,
+        "questions_since_last_tutor": since_unlock,
+        "threshold": TUTOR_UNLOCK_THRESHOLD,
+        "unlocked": since_unlock >= TUTOR_UNLOCK_THRESHOLD,
+    }
+
+
+@app.route("/tutor-status", methods=["GET"])
+def tutor_status():
+    sid = session.get("sid")
+    try:
+        return jsonify(_tutor_progress(sid))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/tutor-session", methods=["POST"])
+def tutor_session():
+    sid = session.get("sid")
+    try:
+        progress = _tutor_progress(sid)
+        if not progress["unlocked"]:
+            remaining = progress["threshold"] - progress["questions_since_last_tutor"]
+            return jsonify({
+                "error": f"Tutor session locked - answer {remaining} more question(s) to unlock it.",
+                "progress": progress,
+            }), 403
+
+        journey = _build_journey(sid)
+
+        # Pull a handful of recent missed questions across ALL history so the
+        # tutor can ground its explanation in concrete examples, not just
+        # abstract percentages.
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT missed_questions FROM exam_sessions
+               WHERE session_id = ? ORDER BY id DESC LIMIT 10""",
+            (sid,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        missed_examples = []
+        for r in rows:
+            try:
+                missed_examples.extend(json.loads(r[0]) if r[0] else [])
+            except json.JSONDecodeError:
+                pass
+        missed_examples = missed_examples[:15]
+
+        tutor_prompt = f"""You are a patient, encouraging CCNA (200-301) tutor sitting down with a student who has just answered {progress['lifetime_total']} practice questions total. This is a milestone check-in, not a quick status update - take your time and actually teach.
+
+Overall readiness: {journey['readiness']}% (passing standard: 85%)
+
+Per-domain status:
+{json.dumps(journey['domain_rows'], indent=2)}
+
+Domains ranked by study priority (gap size x official exam weight):
+{json.dumps(journey['gap_ranking'], indent=2)}
+
+Specific questions the student recently got wrong:
+{json.dumps(missed_examples, indent=2)}
+
+Write a genuine tutoring explanation, not a report:
+1. Pick the 2-3 concepts (grounded in the specific missed questions above, not just the domain name) that are most worth understanding right now.
+2. Explain each one in plain language, using a concrete analogy or real-world comparison a beginner would grasp - avoid just repeating textbook definitions.
+3. Directly reference at least one of the missed questions above to show *why* the underlying concept matters, not just that they got it wrong.
+4. Close with honest, specific encouragement about what's genuinely improving.
+
+Keep it warm and conversational, like a good teacher explaining something in office hours - not a bulleted corporate report.
+"""
+        try:
+            response = client.models.generate_content(model=MODEL_NAME, contents=tutor_prompt)
+        except Exception as e:
+            err_msg = str(e)
+            if _is_quota_error(err_msg):
+                # Don't consume the unlock if we couldn't actually deliver it -
+                # the student keeps their milestone and can retry later.
+                return jsonify({"error": _friendly_quota_message(err_msg), "progress": progress}), 429
+            raise
+
+        report_text = response.text
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO tutor_sessions (session_id, cumulative_total_at_session, report_text)
+               VALUES (?, ?, ?)""",
+            (sid, progress["lifetime_total"], report_text),
+        )
+        conn.commit()
+        conn.close()
+
+        return jsonify({"report": report_text, "progress": _tutor_progress(sid)})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/tutor-history", methods=["GET"])
+def tutor_history():
+    sid = session.get("sid")
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT timestamp, cumulative_total_at_session, report_text
+               FROM tutor_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 10""",
+            (sid,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return jsonify([
+            {"timestamp": r[0], "questions_covered": r[1], "report": r[2]}
+            for r in rows
+        ])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
