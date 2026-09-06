@@ -147,6 +147,11 @@
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
   .toggle-row input { accent-color: var(--wire); }
 
+  .tutor-progress-bar { height: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .tutor-progress-fill { height: 100%; background: var(--wire); }
+  .tutor-report { font-size: 13px; line-height: 1.7; margin-top: 14px; white-space: pre-wrap; }
+  .tutor-report-meta { font-size: 11px; color: var(--dim); margin-top: 10px; }
+
   #loginGate { display: none; }
 
   @media (max-width: 560px) {
@@ -166,11 +171,13 @@
 
   <div class="toolbar">
     <button class="ghost-btn" id="journeyBtn">agent --report --journey</button>
+    <button class="ghost-btn" id="tutorBtn">tutor --status</button>
     <button class="ghost-btn" id="historyBtn">show exam-history</button>
   </div>
 
   <div class="content">
     <div id="journeyPanel" class="box" style="display:none;"></div>
+    <div id="tutorPanel" class="box" style="display:none;"></div>
     <div id="historyPanel" class="box" style="display:none;"></div>
 
     <p><span class="prompt">$</span> generate-exam --configure<span class="cursor"></span></p>
@@ -302,6 +309,7 @@ async function fetchJourney() {
   const panel = document.getElementById('journeyPanel');
   const wasOpen = panel.style.display === 'block';
   document.getElementById('historyPanel').style.display = 'none';
+  document.getElementById('tutorPanel').style.display = 'none';
   if (wasOpen) { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<p class="muted">Analyzing your session history...</p>';
@@ -315,9 +323,74 @@ async function fetchJourney() {
   }
 }
 
+function renderTutorPanel(progress, report, questionsCovered) {
+  const panel = document.getElementById('tutorPanel');
+  if (report) {
+    panel.innerHTML = `
+      <div class="section-title">tutor session — ${questionsCovered} questions covered</div>
+      <div class="tutor-report">${escapeHtml(report)}</div>
+      <div class="tutor-report-meta">Next tutor session unlocks after ${progress.threshold} more questions.</div>
+    `;
+    return;
+  }
+  const pct = Math.min(100, Math.round((progress.questions_since_last_tutor / progress.threshold) * 100));
+  if (progress.unlocked) {
+    panel.innerHTML = `
+      <div class="section-title">tutor session available</div>
+      <p style="font-size:12.5px;">You've answered ${progress.questions_since_last_tutor} questions since your last tutor session — enough for a proper deep-dive grounded in your actual missed questions.</p>
+      <button class="run-btn alt" id="requestTutorBtn">request tutor session</button>
+    `;
+    document.getElementById('requestTutorBtn').addEventListener('click', requestTutorSession);
+  } else {
+    panel.innerHTML = `
+      <div class="section-title">tutor session — locked</div>
+      <p style="font-size:12.5px;" class="muted">${progress.questions_since_last_tutor} / ${progress.threshold} questions answered since last session.</p>
+      <div class="tutor-progress-bar"><div class="tutor-progress-fill" style="width:${pct}%"></div></div>
+      <p style="font-size:11.5px; margin-top:10px;" class="dim">Answer ${progress.threshold - progress.questions_since_last_tutor} more question(s) to unlock a tutor session — it'll use everything you've missed since the last one to explain the concepts properly, in one focused sitting.</p>
+    `;
+  }
+}
+
+async function toggleTutor() {
+  const panel = document.getElementById('tutorPanel');
+  const wasOpen = panel.style.display === 'block';
+  document.getElementById('journeyPanel').style.display = 'none';
+  document.getElementById('historyPanel').style.display = 'none';
+  if (wasOpen) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<p class="muted">Checking tutor status...</p>';
+  try {
+    const res = await fetch('/tutor-status');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderTutorPanel(data, null, null);
+  } catch (err) {
+    panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function requestTutorSession() {
+  const panel = document.getElementById('tutorPanel');
+  const btn = document.getElementById('requestTutorBtn');
+  setButtonLoading(btn, true, 'thinking...', 'request tutor session');
+  try {
+    const res = await fetch('/tutor-session', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      if (data.progress) { renderTutorPanel(data.progress, null, null); }
+      panel.insertAdjacentHTML('afterbegin', `<p class="muted">${escapeHtml(data.error)}</p>`);
+      return;
+    }
+    renderTutorPanel(data.progress, data.report, data.progress.lifetime_total);
+  } catch (err) {
+    panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
 async function toggleHistory() {
   const panel = document.getElementById('historyPanel');
   document.getElementById('journeyPanel').style.display = 'none';
+  document.getElementById('tutorPanel').style.display = 'none';
   if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<p class="muted">Loading history...</p>';
@@ -339,6 +412,7 @@ async function toggleHistory() {
 }
 
 document.getElementById('journeyBtn').addEventListener('click', fetchJourney);
+document.getElementById('tutorBtn').addEventListener('click', toggleTutor);
 document.getElementById('historyBtn').addEventListener('click', toggleHistory);
 document.getElementById('clearFocusBtn').addEventListener('click', () => {
   pendingFocusDomains = [];
