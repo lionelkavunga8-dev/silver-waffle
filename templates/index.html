@@ -1,352 +1,530 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCNA 200-301 Exam Simulator & AI Agent</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 850px; margin: 30px auto; padding: 20px; background: #f4f6f9; color: #333; }
-        .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; }
-        select, button { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 15px; }
-        button { background: #0070ad; color: #fff; border: none; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        button:hover:not(:disabled) { background: #005073; }
-        button:disabled { opacity: 0.6; cursor: not-allowed; }
-        .agent-btn { background: #673ab7; margin-bottom: 10px; }
-        .agent-btn:hover:not(:disabled) { background: #512da8; }
-        .secondary-btn { background: #607d8b; }
-        .secondary-btn:hover:not(:disabled) { background: #455a64; }
-        .card { border-left: 5px solid #0070ad; background: #fafafa; padding: 15px; margin-top: 20px; border-radius: 4px; }
-        .card.missed { border-left-color: #c62828; }
-        .card.correct { border-left-color: #2e7d32; }
-        .option-item { margin-bottom: 8px; }
-        .explanation { display: none; padding: 10px; margin-top: 10px; border-radius: 4px; font-size: 14px; background: #e8f4f8; border-left: 3px solid #009688; }
-        .q-number { font-weight: bold; color: #0070ad; margin-bottom: 5px; display: flex; justify-content: space-between; }
-        .domain-tag { font-weight: normal; font-size: 12px; color: #888; }
-        .score-banner { display: none; padding: 20px; margin-bottom: 25px; border-radius: 6px; text-align: center; font-size: 18px; }
-        .score-banner.passed { background: #e8f5e9; border: 2px solid #2e7d32; color: #1b5e20; }
-        .score-banner.failed { background: #ffebee; border: 2px solid #c62828; color: #b71c1c; }
-        .submit-exam-btn { background: #2e7d32; font-size: 18px; padding: 15px; margin-top: 30px; }
-        .submit-exam-btn:hover:not(:disabled) { background: #1b5e20; }
-        .agent-report-box { display: none; background: #ede7f6; border: 2px solid #673ab7; padding: 20px; border-radius: 6px; margin-bottom: 15px; white-space: pre-line; line-height: 1.5; }
-        .domain-breakdown { display: none; margin: 20px 0; }
-        .domain-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 14px; }
-        .domain-row .label { flex: 0 0 230px; }
-        .domain-bar-bg { flex: 1; background: #e0e0e0; border-radius: 4px; height: 14px; overflow: hidden; }
-        .domain-bar-fill { height: 100%; background: #0070ad; }
-        .domain-row .pct { flex: 0 0 60px; text-align: right; font-weight: bold; }
-        .history-box { display: none; margin-bottom: 20px; font-size: 14px; }
-        .history-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
-        .toggle-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
-        .toggle-row input { width: auto; }
-        .unanswered-warning { color: #b71c1c; font-weight: bold; margin-top: 10px; display: none; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCNA 200-301 Exam Simulator & AI Agent</title>
+<style>
+  :root {
+    --bg: #0E161D;
+    --panel: #121C24;
+    --panel-alt: #16212B;
+    --line: #263440;
+    --text: #D7DEE3;
+    --muted: #6B7885;
+    --dim: #4A5966;
+    --wire: #7FB2DD;
+    --ready: #4FBE85;
+    --building: #E0AC4E;
+    --focus: #E06868;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+  .frame {
+    max-width: 760px;
+    margin: 28px auto 80px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--line);
+  }
+  .titlebar .dots { display: flex; gap: 6px; }
+  .titlebar .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .titlebar .dot.r { background: #E06868; }
+  .titlebar .dot.y { background: #E0AC4E; }
+  .titlebar .dot.g { background: #4FBE85; }
+  .titlebar .path { color: var(--muted); font-size: 12px; margin-left: 4px; }
+
+  .toolbar { display: flex; gap: 8px; padding: 12px 14px; background: var(--panel-alt); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+
+  .content { padding: 24px 24px 30px; }
+
+  .prompt { color: var(--wire); }
+  .cursor { display: inline-block; width: 7px; height: 15px; background: var(--ready); margin-left: 4px; animation: blink 1s steps(1) infinite; vertical-align: -2px; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  p { line-height: 1.6; color: var(--text); margin: 8px 0; }
+  .muted { color: var(--muted); }
+  .dim { color: var(--dim); }
+
+  .box { border: 1px solid var(--line); border-radius: 5px; background: var(--panel-alt); padding: 16px 18px; margin-top: 16px; }
+  .section-title { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+  .field { margin-top: 16px; }
+  .flag-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .flag {
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    padding: 7px 12px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; cursor: pointer;
+  }
+  .flag.selected { border-color: var(--wire); color: var(--wire); background: rgba(127,178,221,0.08); }
+  .flag.suggested { border-color: var(--building); }
+
+  button.run-btn, button.ghost-btn, button.small-btn {
+    font-family: var(--mono);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .run-btn {
+    background: var(--ready); color: #08130D; border: none; font-weight: 700; font-size: 13px; padding: 11px 18px; margin-top: 20px;
+  }
+  .run-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .run-btn.alt { background: var(--wire); color: #08131C; }
+  .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--text); font-size: 12.5px; padding: 9px 14px; }
+  .ghost-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .small-btn { background: transparent; border: none; color: var(--wire); font-size: 12px; padding: 0; text-decoration: underline; }
+
+  .focus-banner { border: 1px solid var(--building); background: rgba(224,172,78,0.08); border-radius: 5px; padding: 10px 14px; margin-top: 14px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; }
+
+  .q-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .q-card { margin-top: 20px; }
+  .q-text { font-size: 14px; margin-bottom: 14px; color: var(--text); }
+  label.option {
+    display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px;
+    border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; cursor: pointer; font-size: 13px;
+  }
+  label.option:hover { border-color: var(--wire); }
+  label.option:has(input:checked) { border-color: var(--wire); background: rgba(127,178,221,0.07); }
+  label.option input { accent-color: var(--wire); margin-top: 2px; }
+  label.option .letter { color: var(--wire); font-weight: 700; width: 14px; flex-shrink: 0; }
+  .q-card.correct { border-left: 3px solid var(--ready); padding-left: 12px; }
+  .q-card.missed { border-left: 3px solid var(--focus); padding-left: 12px; }
+  .explanation { display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 12.5px; background: var(--panel); }
+
+  .status-line { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px; border-radius: 5px; margin-top: 16px; }
+  .status-line.fail { background: rgba(224,104,104,0.12); border: 1px solid rgba(224,104,104,0.35); }
+  .status-line.pass { background: rgba(79,190,133,0.12); border: 1px solid rgba(79,190,133,0.35); }
+  .status-line .big { font-size: 16px; font-weight: 700; }
+  .status-line.fail .big { color: var(--focus); }
+  .status-line.pass .big { color: var(--ready); }
+
+  .cli-row { display: flex; color: var(--text); padding: 4px 0; font-size: 12.5px; align-items: baseline; }
+  .cli-id { color: var(--wire); width: 30px; flex-shrink: 0; }
+  .cli-name { flex: 1; min-width: 0; }
+  .cli-pct { width: 46px; text-align: right; flex-shrink: 0; }
+  .cli-trend { width: 60px; text-align: right; flex-shrink: 0; }
+  .cli-status { width: 90px; text-align: right; flex-shrink: 0; font-weight: 600; }
+  .up { color: var(--ready); }
+  .down { color: var(--focus); }
+  .flat, .none { color: var(--muted); }
+  .ready-txt { color: var(--ready); }
+  .building-txt { color: var(--building); }
+  .focus-txt { color: var(--focus); }
+
+  .missed-item { border-top: 1px solid var(--line); padding: 10px 0; font-size: 12.5px; }
+  .missed-item .q { color: var(--text); margin-bottom: 4px; }
+  .missed-item .meta { color: var(--muted); }
+
+  .gauge-wrap { display: flex; align-items: baseline; gap: 14px; margin-top: 4px; }
+  .gauge-num { font-size: 30px; font-weight: 700; color: var(--wire); }
+  .gauge-bar { flex: 1; height: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .gauge-fill { height: 100%; background: linear-gradient(90deg, var(--focus), var(--building) 55%, var(--ready) 85%); }
+  .gap-line { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .gap-line:first-of-type { border-top: none; }
+  .log-entry { font-size: 12.5px; padding: 3px 0; }
+  .log-entry .tag { color: var(--dim); }
+
+  .hist-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .hist-row:first-child { border-top: none; }
+  .hist-date { color: var(--muted); width: 140px; flex-shrink: 0; }
+  .hist-topic { flex: 1; color: var(--text); }
+  .hist-score { width: 130px; text-align: right; }
+
+  .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
+  .toggle-row input { accent-color: var(--wire); }
+
+  #loginGate { display: none; }
+
+  @media (max-width: 560px) {
+    .frame { margin: 0; border-radius: 0; border: none; }
+    .cli-trend { display: none; }
+    .content { padding: 18px 16px 24px; }
+  }
+</style>
 </head>
 <body>
 
-<div class="container">
-    <h2>CCNA 200-301 Exam Simulator & AI Agent</h2>
+<div class="frame">
+  <div class="titlebar">
+    <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+    <span class="path">guest@ccna-sim: ~</span>
+  </div>
 
-    <button class="agent-btn" id="agentBtn" onclick="fetchAIAgentReport()">🤖 Ask AI Progress Agent: Where Do I Need to Improve?</button>
-    <button class="secondary-btn" id="historyBtn" onclick="toggleHistory()">📊 View My Exam History</button>
-    <div id="agentReportBox" class="agent-report-box"></div>
-    <div id="historyBox" class="history-box"></div>
+  <div class="toolbar">
+    <button class="ghost-btn" id="journeyBtn">agent --report --journey</button>
+    <button class="ghost-btn" id="historyBtn">show exam-history</button>
+  </div>
 
-    <hr style="margin: 25px 0; border: 0; border-top: 1px solid #ddd;">
+  <div class="content">
+    <div id="journeyPanel" class="box" style="display:none;"></div>
+    <div id="historyPanel" class="box" style="display:none;"></div>
 
-    <div class="form-group">
-        <label for="topic">Select CCNA Domain:</label>
-        <select id="topic">
-            <option value="All Domains (Full Exam)">All Domains (Mixed Comprehensive)</option>
-            <option value="1.0 Network Fundamentals">1.0 Network Fundamentals (20%)</option>
-            <option value="2.0 Network Access">2.0 Network Access (20%)</option>
-            <option value="3.0 IP Connectivity">3.0 IP Connectivity (25%)</option>
-            <option value="4.0 IP Services">4.0 IP Services (10%)</option>
-            <option value="5.0 Security Fundamentals">5.0 Security Fundamentals (15%)</option>
-            <option value="6.0 Automation & Programmability">6.0 Automation & Programmability (10%)</option>
-        </select>
+    <p><span class="prompt">$</span> generate-exam --configure<span class="cursor"></span></p>
+    <div class="box">
+      <div class="section-title">--domain</div>
+      <div class="flag-group" id="topicFlags">
+        <div class="flag selected" data-value="All Domains (Full Exam)">all</div>
+        <div class="flag" data-value="1.0 Network Fundamentals">1.0 fundamentals</div>
+        <div class="flag" data-value="2.0 Network Access">2.0 access</div>
+        <div class="flag" data-value="3.0 IP Connectivity">3.0 connectivity</div>
+        <div class="flag" data-value="4.0 IP Services">4.0 services</div>
+        <div class="flag" data-value="5.0 Security Fundamentals">5.0 security</div>
+        <div class="flag" data-value="6.0 Automation & Programmability">6.0 automation</div>
+      </div>
+
+      <div class="field">
+        <div class="section-title">--count</div>
+        <div class="flag-group" id="countFlags">
+          <div class="flag" data-value="1">1</div>
+          <div class="flag" data-value="5">5</div>
+          <div class="flag selected" data-value="20">20</div>
+          <div class="flag" data-value="50">50</div>
+          <div class="flag" data-value="100">100</div>
+        </div>
+      </div>
+
+      <div id="focusBanner" class="focus-banner" style="display:none;">
+        <span id="focusBannerText"></span>
+        <button class="small-btn" id="clearFocusBtn">clear</button>
+      </div>
+
+      <button class="run-btn" id="generateBtn">run exam</button>
     </div>
 
-    <div class="form-group">
-        <label for="count">Number of Questions:</label>
-        <select id="count">
-            <option value="1">1 Question (Quick Practice)</option>
-            <option value="5">5 Questions</option>
-            <option value="20">20 Questions (Domain Quiz)</option>
-            <option value="50">50 Questions (Half-Length Exam)</option>
-            <option value="100">100 Questions (Full CCNA Mock Exam)</option>
-        </select>
-    </div>
-
-    <button id="generateBtn" onclick="generateExam()">Generate Practice Exam</button>
-
-    <div id="status" style="margin-top: 15px; font-weight: bold; color: #555;"></div>
-    <div id="scoreBanner" class="score-banner"></div>
-    <div id="domainBreakdown" class="domain-breakdown"></div>
+    <div id="status" class="muted" style="margin-top: 14px;"></div>
+    <div id="statusLine"></div>
+    <div id="output"></div>
 
     <div class="toggle-row" id="reviewToggleRow" style="display:none;">
-        <input type="checkbox" id="reviewOnlyToggle" onchange="applyReviewFilter()">
-        <label for="reviewOnlyToggle" style="display:inline; font-weight:normal;">Show missed questions only</label>
+      <input type="checkbox" id="reviewOnlyToggle">
+      <label for="reviewOnlyToggle">show missed questions only</label>
     </div>
 
-    <div id="output"></div>
-    <div id="unansweredWarning" class="unanswered-warning"></div>
+    <div id="submitWrap"></div>
+  </div>
 </div>
 
 <script>
 let currentQuestions = [];
+let selectedTopic = "All Domains (Full Exam)";
+let selectedCount = 20;
+let pendingFocusDomains = [];
 let examSubmitted = false;
 
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str == null ? '' : String(str);
-    return div.innerHTML;
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
 }
+
+function statusClass(status) {
+  return status === 'READY' ? 'ready-txt' : (status === 'BUILDING' ? 'building-txt' : 'focus-txt');
+}
+function trendHtml(trend) {
+  if (trend === null || trend === undefined) return '<span class="cli-trend none">—</span>';
+  if (trend > 0) return `<span class="cli-trend up">▲ +${trend}</span>`;
+  if (trend < 0) return `<span class="cli-trend down">▼ ${trend}</span>`;
+  return '<span class="cli-trend flat">▬ 0</span>';
+}
+function domainRowsToHtml(rows) {
+  return rows.map(r => `
+    <div class="cli-row">
+      <span class="cli-id">${escapeHtml(r.id)}</span>
+      <span class="cli-name">${escapeHtml(r.domain.replace(/^[0-9.]+\s*/, ''))}</span>
+      <span class="cli-pct">${r.pct}%</span>
+      ${trendHtml(r.trend)}
+      <span class="cli-status ${statusClass(r.status)}">${r.status}</span>
+    </div>
+  `).join('');
+}
+function renderJourneyPanel(journey, report) {
+  const panel = document.getElementById('journeyPanel');
+  if (!journey) {
+    panel.innerHTML = `<p class="muted">${escapeHtml(report || 'No exam history yet.')}</p>`;
+    return;
+  }
+  const gapHtml = journey.gap_ranking.map(g => `
+    <div class="gap-line">
+      <span>${escapeHtml(g.id)} ${escapeHtml(g.domain.replace(/^[0-9.]+\s*/, ''))} <span class="dim">(${g.weight}% of exam)</span></span>
+      <span class="muted">close ${g.gap_points}pt gap</span>
+    </div>
+  `).join('');
+  const logHtml = journey.log.map(l => `<div class="log-entry"><span class="tag">[${escapeHtml(l.when)}]</span> ${escapeHtml(l.text)}</div>`).join('');
+  const focusIds = journey.suggested_focus_domains.map(d => d.split(' ')[0].replace('.0','')).join(', D');
+
+  panel.innerHTML = `
+    <div class="section-title">overall readiness (target 85% to pass)</div>
+    <div class="gauge-wrap">
+      <div class="gauge-num">${journey.readiness}%</div>
+      <div class="gauge-bar"><div class="gauge-fill" style="width:${journey.readiness}%"></div></div>
+    </div>
+    <p class="muted" style="font-size:12px; margin-top:8px;">based on ${journey.sessions_counted} tracked session(s)</p>
+
+    <div class="section-title" style="margin-top:20px;">fastest path to 100% — ranked by (gap × exam weight)</div>
+    ${gapHtml || '<p class="muted">Not enough data yet.</p>'}
+
+    <div class="section-title" style="margin-top:20px;">session log</div>
+    ${logHtml || '<p class="muted">No sessions logged yet.</p>'}
+
+    <p style="font-size:12.5px; margin-top:16px; line-height:1.7;">${escapeHtml(report)}</p>
+
+    ${journey.suggested_focus_domains.length ? `<button class="run-btn alt" id="buildFocusBtn">build focus exam — 60% D${focusIds}, 40% mixed</button>` : ''}
+  `;
+
+  const focusBtn = document.getElementById('buildFocusBtn');
+  if (focusBtn) {
+    focusBtn.addEventListener('click', () => {
+      pendingFocusDomains = journey.suggested_focus_domains;
+      document.getElementById('focusBannerText').textContent =
+        `focus mode: ${pendingFocusDomains.map(d => d.split(' ')[0]).join(', ')} (60% of next exam)`;
+      document.getElementById('focusBanner').style.display = 'flex';
+      panel.style.display = 'none';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+}
+
+async function fetchJourney() {
+  const panel = document.getElementById('journeyPanel');
+  const wasOpen = panel.style.display === 'block';
+  document.getElementById('historyPanel').style.display = 'none';
+  if (wasOpen) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<p class="muted">Analyzing your session history...</p>';
+  try {
+    const res = await fetch('/ai-progress-agent');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderJourneyPanel(data.journey, data.report);
+  } catch (err) {
+    panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function toggleHistory() {
+  const panel = document.getElementById('historyPanel');
+  document.getElementById('journeyPanel').style.display = 'none';
+  if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<p class="muted">Loading history...</p>';
+  try {
+    const res = await fetch('/history');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!data.length) { panel.innerHTML = '<p class="muted">No past exam attempts yet.</p>'; return; }
+    panel.innerHTML = `<div class="section-title">show exam-history --last 15</div>` + data.map(s => `
+      <div class="hist-row">
+        <span class="hist-date">${escapeHtml(s.timestamp)}</span>
+        <span class="hist-topic">${escapeHtml(s.topic)}</span>
+        <span class="hist-score ${s.status === 'PASSED' ? 'ready-txt' : 'focus-txt'}">${s.percentage}% ${s.status}</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+document.getElementById('journeyBtn').addEventListener('click', fetchJourney);
+document.getElementById('historyBtn').addEventListener('click', toggleHistory);
+document.getElementById('clearFocusBtn').addEventListener('click', () => {
+  pendingFocusDomains = [];
+  document.getElementById('focusBanner').style.display = 'none';
+});
+
+document.querySelectorAll('#topicFlags .flag').forEach(f => {
+  f.addEventListener('click', () => {
+    document.querySelectorAll('#topicFlags .flag').forEach(x => x.classList.remove('selected'));
+    f.classList.add('selected');
+    selectedTopic = f.dataset.value;
+  });
+});
+document.querySelectorAll('#countFlags .flag').forEach(f => {
+  f.addEventListener('click', () => {
+    document.querySelectorAll('#countFlags .flag').forEach(x => x.classList.remove('selected'));
+    f.classList.add('selected');
+    selectedCount = parseInt(f.dataset.value);
+  });
+});
 
 function setButtonLoading(btn, isLoading, loadingText, defaultText) {
-    btn.disabled = isLoading;
-    btn.textContent = isLoading ? loadingText : defaultText;
-}
-
-async function fetchAIAgentReport() {
-    const btn = document.getElementById('agentBtn');
-    const reportBox = document.getElementById('agentReportBox');
-    setButtonLoading(btn, true, 'Analyzing...', '🤖 Ask AI Progress Agent: Where Do I Need to Improve?');
-    reportBox.style.display = "block";
-    reportBox.textContent = "Analyzing your historical exam answers across the 6 CCNA domains...";
-
-    try {
-        const res = await fetch('/ai-progress-agent');
-        const data = await res.json();
-        reportBox.textContent = data.report || data.error || "No report available.";
-    } catch (err) {
-        reportBox.textContent = "Error fetching AI report: " + err.message;
-    } finally {
-        setButtonLoading(btn, false, '', '🤖 Ask AI Progress Agent: Where Do I Need to Improve?');
-    }
-}
-
-let historyLoaded = false;
-async function toggleHistory() {
-    const box = document.getElementById('historyBox');
-    if (box.style.display === "block") {
-        box.style.display = "none";
-        return;
-    }
-    box.style.display = "block";
-    box.textContent = "Loading history...";
-    try {
-        const res = await fetch('/history');
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        if (!data.length) {
-            box.textContent = "No past exam attempts yet.";
-            return;
-        }
-        box.innerHTML = data.map(s => `
-            <div class="history-row">
-                <span>${escapeHtml(s.timestamp)} — ${escapeHtml(s.topic)}</span>
-                <span>${s.score}/${s.total} (${s.percentage}%) ${s.status === 'PASSED' ? '✅' : '❌'}</span>
-            </div>
-        `).join('');
-    } catch (err) {
-        box.textContent = "Error loading history: " + err.message;
-    }
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? loadingText : defaultText;
 }
 
 async function generateExam() {
-    const topic = document.getElementById('topic').value;
-    const count = parseInt(document.getElementById('count').value);
-    const status = document.getElementById('status');
-    const output = document.getElementById('output');
-    const scoreBanner = document.getElementById('scoreBanner');
-    const domainBreakdown = document.getElementById('domainBreakdown');
-    const reviewToggleRow = document.getElementById('reviewToggleRow');
-    const unansweredWarning = document.getElementById('unansweredWarning');
-    const genBtn = document.getElementById('generateBtn');
+  const status = document.getElementById('status');
+  const output = document.getElementById('output');
+  const statusLine = document.getElementById('statusLine');
+  const reviewToggleRow = document.getElementById('reviewToggleRow');
+  const submitWrap = document.getElementById('submitWrap');
+  const genBtn = document.getElementById('generateBtn');
 
-    scoreBanner.style.display = "none";
-    domainBreakdown.style.display = "none";
-    reviewToggleRow.style.display = "none";
-    unansweredWarning.style.display = "none";
-    examSubmitted = false;
-    status.innerText = `Generating ${count} CCNA question(s)... this can take a little while for larger exams.`;
-    output.innerHTML = "";
-    setButtonLoading(genBtn, true, 'Generating...', 'Generate Practice Exam');
+  statusLine.innerHTML = '';
+  reviewToggleRow.style.display = 'none';
+  submitWrap.innerHTML = '';
+  examSubmitted = false;
+  output.innerHTML = '';
+  status.textContent = `Generating ${selectedCount} CCNA question(s)... this can take a little while for larger exams.`;
+  setButtonLoading(genBtn, true, 'generating...', 'run exam');
 
-    try {
-        const res = await fetch('/generate-exam', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic: topic, count: count })
-        });
-
-        currentQuestions = await res.json();
-        if (currentQuestions.error) throw new Error(currentQuestions.error);
-        if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
-            throw new Error("No questions were generated. Please try again.");
-        }
-
-        status.innerText = `Exam Loaded: ${currentQuestions.length} Questions. Answer all questions below and click "Submit Final Exam".`;
-
-        let htmlContent = currentQuestions.map((q, idx) => `
-            <div class="card" id="card_${idx}">
-                <div class="q-number">
-                    <span>Question ${idx + 1}</span>
-                    <span class="domain-tag">${escapeHtml(q.domain || '')}</span>
-                </div>
-                <p><strong>${escapeHtml(q.question)}</strong></p>
-                ${q.options.map((opt, optIdx) => `
-                    <div class="option-item">
-                        <label style="font-weight: normal; cursor: pointer;">
-                            <input type="radio" name="q_${idx}" value="${escapeHtml(opt.charAt(0))}"> ${escapeHtml(opt)}
-                        </label>
-                    </div>
-                `).join('')}
-                <div id="expl_${idx}" class="explanation">
-                    <strong>Correct Answer: ${escapeHtml(q.answer)}</strong>
-                    <p>${escapeHtml(q.explanation)}</p>
-                </div>
-            </div>
-        `).join('');
-
-        htmlContent += `<button class="submit-exam-btn" id="submitBtn" onclick="submitExam()">Submit Final Exam</button>`;
-        output.innerHTML = htmlContent;
-
-    } catch (err) {
-        status.innerText = "Error: " + err.message;
-    } finally {
-        setButtonLoading(genBtn, false, '', 'Generate Practice Exam');
+  try {
+    const res = await fetch('/generate-exam', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: selectedTopic, count: selectedCount, focus_domains: pendingFocusDomains })
+    });
+    currentQuestions = await res.json();
+    if (currentQuestions.error) throw new Error(currentQuestions.error);
+    if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
+      throw new Error('No questions were generated. Please try again.');
     }
+
+    status.textContent = `Exam loaded: ${currentQuestions.length} question(s). Answer below, then submit.`;
+
+    output.innerHTML = currentQuestions.map((q, idx) => `
+      <div class="q-card" id="card_${idx}">
+        <div class="q-head"><span>question ${String(idx + 1).padStart(2,'0')} / ${currentQuestions.length}</span><span>${escapeHtml(q.domain || '')}</span></div>
+        <div class="q-text">${escapeHtml(q.question)}</div>
+        ${q.options.map(opt => `
+          <label class="option">
+            <input type="radio" name="q_${idx}" value="${escapeHtml(opt.charAt(0))}">
+            <span class="letter">${escapeHtml(opt.charAt(0))}</span>
+            <span>${escapeHtml(opt.slice(opt.indexOf('.') + 1).trim())}</span>
+          </label>
+        `).join('')}
+        <div id="expl_${idx}" class="explanation">
+          <strong>Correct answer: ${escapeHtml(q.answer)}</strong>
+          <p style="margin:6px 0 0;">${escapeHtml(q.explanation)}</p>
+        </div>
+      </div>
+    `).join('');
+
+    submitWrap.innerHTML = `<button class="run-btn" id="submitBtn">submit final exam</button>`;
+    document.getElementById('submitBtn').addEventListener('click', submitExam);
+
+    if (pendingFocusDomains.length) {
+      pendingFocusDomains = [];
+      document.getElementById('focusBanner').style.display = 'none';
+    }
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+  } finally {
+    setButtonLoading(genBtn, false, '', 'run exam');
+  }
 }
+document.getElementById('generateBtn').addEventListener('click', generateExam);
 
 function countUnanswered() {
-    let unanswered = 0;
-    currentQuestions.forEach((q, idx) => {
-        if (!document.querySelector(`input[name="q_${idx}"]:checked`)) unanswered++;
-    });
-    return unanswered;
+  let n = 0;
+  currentQuestions.forEach((q, idx) => { if (!document.querySelector(`input[name="q_${idx}"]:checked`)) n++; });
+  return n;
 }
 
 async function submitExam() {
-    const unansweredWarning = document.getElementById('unansweredWarning');
-    const unanswered = countUnanswered();
-    if (unanswered > 0 && !submitExam._confirmed) {
-        submitExam._confirmed = true;
-        unansweredWarning.style.display = "block";
-        unansweredWarning.textContent = `You have ${unanswered} unanswered question(s). Click "Submit Final Exam" again to submit anyway, or go back and answer them.`;
-        return;
-    }
-    submitExam._confirmed = false;
-    unansweredWarning.style.display = "none";
+  const submitBtn = document.getElementById('submitBtn');
+  const unanswered = countUnanswered();
+  if (unanswered > 0 && !submitExam._confirmed) {
+    submitExam._confirmed = true;
+    document.getElementById('status').textContent = `${unanswered} unanswered question(s). Click submit again to submit anyway.`;
+    return;
+  }
+  submitExam._confirmed = false;
+  setButtonLoading(submitBtn, true, 'submitting...', 'submit final exam');
 
-    const submitBtn = document.getElementById('submitBtn');
-    if (submitBtn) setButtonLoading(submitBtn, true, 'Submitting...', 'Submit Final Exam');
+  let correctCount = 0;
+  const totalQuestions = currentQuestions.length;
+  const missedQuestionsList = [];
+  const domainStats = {};
 
-    let correctCount = 0;
-    let totalQuestions = currentQuestions.length;
-    let missedQuestionsList = [];
-    const domainStats = {};
+  currentQuestions.forEach((q, idx) => {
+    const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
+    document.getElementById(`expl_${idx}`).style.display = 'block';
+    const cardEl = document.getElementById(`card_${idx}`);
+    const userAnswer = selected ? selected.value.trim().toUpperCase() : 'NONE';
+    const correctAnswer = q.answer.trim().charAt(0).toUpperCase();
+    const domain = q.domain || 'Unspecified';
 
-    currentQuestions.forEach((q, idx) => {
-        const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
-        const explBox = document.getElementById(`expl_${idx}`);
-        const cardEl = document.getElementById(`card_${idx}`);
-        explBox.style.display = "block"; // Reveal explanations
+    if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0 };
+    domainStats[domain].total++;
 
-        const userAnswer = selected ? selected.value.trim().toUpperCase() : "NONE";
-        const correctAnswer = q.answer.trim().charAt(0).toUpperCase();
-        const domain = q.domain || "Unspecified";
-
-        if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0 };
-        domainStats[domain].total++;
-
-        const isCorrect = userAnswer === correctAnswer;
-        if (isCorrect) {
-            correctCount++;
-            domainStats[domain].correct++;
-            cardEl.classList.add('correct');
-            cardEl.dataset.missed = "false";
-        } else {
-            missedQuestionsList.push({
-                question: q.question,
-                domain: domain,
-                user_answered: userAnswer,
-                correct_answer: correctAnswer,
-                explanation: q.explanation
-            });
-            cardEl.classList.add('missed');
-            cardEl.dataset.missed = "true";
-        }
-    });
-
-    const percentage = parseFloat(((correctCount / totalQuestions) * 100).toFixed(2));
-    const passed = percentage >= 85.0;
-    const topic = document.getElementById('topic').value;
-
-    const banner = document.getElementById('scoreBanner');
-    banner.style.display = "block";
-
-    if (passed) {
-        banner.className = "score-banner passed";
-        banner.innerHTML = `<h2>🎉 PASSED! Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Congratulations! You met or exceeded the 85% passing requirement.</p>`;
+    if (userAnswer === correctAnswer) {
+      correctCount++;
+      domainStats[domain].correct++;
+      cardEl.classList.add('correct');
+      cardEl.dataset.missed = 'false';
     } else {
-        banner.className = "score-banner failed";
-        banner.innerHTML = `<h2>❌ FAILED. Score: ${correctCount} / ${totalQuestions} (${percentage}%)</h2><p>Passing requirement is 85.0%. Review the explanations below and check your AI Progress Agent report!</p>`;
+      missedQuestionsList.push({ question: q.question, domain, user_answered: userAnswer, correct_answer: correctAnswer, explanation: q.explanation });
+      cardEl.classList.add('missed');
+      cardEl.dataset.missed = 'true';
     }
+  });
 
-    // Domain breakdown bars
-    const domainBreakdown = document.getElementById('domainBreakdown');
-    const rows = Object.entries(domainStats).map(([domain, s]) => {
-        const pct = s.total ? Math.round((s.correct / s.total) * 100) : 0;
-        return `
-            <div class="domain-row">
-                <span class="label">${escapeHtml(domain)}</span>
-                <div class="domain-bar-bg"><div class="domain-bar-fill" style="width:${pct}%; background:${pct >= 85 ? '#2e7d32' : (pct >= 60 ? '#f9a825' : '#c62828')};"></div></div>
-                <span class="pct">${s.correct}/${s.total} (${pct}%)</span>
-            </div>`;
-    }).join('');
-    domainBreakdown.innerHTML = `<h3 style="margin-bottom:10px;">Score by Domain</h3>${rows}`;
-    domainBreakdown.style.display = "block";
+  const percentage = parseFloat(((correctCount / totalQuestions) * 100).toFixed(2));
+  const passed = percentage >= 85.0;
+  const statusLine = document.getElementById('statusLine');
+  statusLine.innerHTML = `
+    <div class="status-line ${passed ? 'pass' : 'fail'}">
+      <span>exit code: ${passed ? 'PASS' : 'FAIL'}</span>
+      <span class="big">${percentage}% · ${correctCount}/${totalQuestions} correct</span>
+    </div>`;
 
-    document.getElementById('reviewToggleRow').style.display = missedQuestionsList.length ? "flex" : "none";
-    document.getElementById('reviewOnlyToggle').checked = false;
+  document.getElementById('reviewToggleRow').style.display = missedQuestionsList.length ? 'flex' : 'none';
+  document.getElementById('reviewOnlyToggle').checked = false;
+  submitBtn.style.display = 'none';
+  examSubmitted = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    if (submitBtn) {
-        submitBtn.style.display = "none";
-    }
-    examSubmitted = true;
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    // Save session details (score + domain stats) for the AI agent
-    try {
-        await fetch('/save-session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                topic: topic,
-                score: correctCount,
-                total: totalQuestions,
-                missed_questions: missedQuestionsList,
-                domain_stats: domainStats
-            })
-        });
-    } catch (err) {
-        console.error("Failed to save session:", err);
-    }
-}
-
-function applyReviewFilter() {
-    const onlyMissed = document.getElementById('reviewOnlyToggle').checked;
-    currentQuestions.forEach((q, idx) => {
-        const cardEl = document.getElementById(`card_${idx}`);
-        if (!cardEl) return;
-        const missed = cardEl.dataset.missed === "true";
-        cardEl.style.display = (onlyMissed && !missed) ? "none" : "";
+  try {
+    const res = await fetch('/save-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: selectedTopic, score: correctCount, total: totalQuestions, missed_questions: missedQuestionsList, domain_stats: domainStats })
     });
+    const data = await res.json();
+    if (data.journey) {
+      const box = document.createElement('div');
+      box.className = 'box';
+      box.innerHTML = `<div class="section-title">! show ccna domain-status</div>${domainRowsToHtml(data.journey.domain_rows)}`;
+      statusLine.appendChild(box);
+    }
+    if (missedQuestionsList.length) {
+      const missedBox = document.createElement('div');
+      missedBox.className = 'box';
+      missedBox.innerHTML = `<div class="section-title">missed questions — review</div>` + missedQuestionsList.map(m => `
+        <div class="missed-item">
+          <div class="q">"${escapeHtml(m.question)}"</div>
+          <div class="meta">you answered ${escapeHtml(m.user_answered)} · correct answer ${escapeHtml(m.correct_answer)} · ${escapeHtml(m.domain)}</div>
+        </div>
+      `).join('');
+      statusLine.appendChild(missedBox);
+    }
+  } catch (err) {
+    console.error('Failed to save session:', err);
+  }
 }
+
+document.getElementById('reviewOnlyToggle').addEventListener('change', (e) => {
+  const onlyMissed = e.target.checked;
+  currentQuestions.forEach((q, idx) => {
+    const cardEl = document.getElementById(`card_${idx}`);
+    if (!cardEl) return;
+    cardEl.style.display = (onlyMissed && cardEl.dataset.missed !== 'true') ? 'none' : '';
+  });
+});
 </script>
 
 </body>
