@@ -4,7 +4,7 @@ import json
 import uuid
 import secrets
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.exceptions import HTTPException
 from dotenv import load_dotenv
 from google import genai
@@ -48,6 +48,17 @@ CCNA_DOMAINS = [
     "6.0 Automation & Programmability",
 ]
 
+# Official Cisco exam blueprint weighting (%) - used to prioritize which
+# weak domain is actually worth the most study time.
+CCNA_DOMAIN_WEIGHTS = {
+    "1.0 Network Fundamentals": 20,
+    "2.0 Network Access": 20,
+    "3.0 IP Connectivity": 25,
+    "4.0 IP Services": 10,
+    "5.0 Security Fundamentals": 15,
+    "6.0 Automation & Programmability": 10,
+}
+
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -89,9 +100,166 @@ def ensure_session_id():
         session.permanent = True
 
 
+# Optional single-password gate. Set SITE_PASSWORD in your .env (and in
+# Render's environment variables) to make the whole app private - anyone
+# without the password is redirected to /login. Leave it unset to keep the
+# app fully public (e.g. for local development).
+SITE_PASSWORD = os.getenv("SITE_PASSWORD")
+
+
+@app.before_request
+def require_auth():
+    if not SITE_PASSWORD:
+        return  # no password configured -> app stays open
+    if request.path == "/login" or request.path.startswith("/static"):
+        return
+    if session.get("authenticated"):
+        return
+    if request.method == "GET":
+        return redirect(url_for("login"))
+    return jsonify({"error": "Unauthorized - please log in."}), 401
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        submitted = request.form.get("password", "")
+        if SITE_PASSWORD and secrets.compare_digest(submitted, SITE_PASSWORD):
+            session["authenticated"] = True
+            session.permanent = True
+            return redirect(url_for("home"))
+        error = "Incorrect password."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.pop("authenticated", None)
+    return redirect(url_for("login"))
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+def _domain_short_id(domain):
+    # "3.0 IP Connectivity" -> "D3"
+    num = domain.split(".")[0]
+    return f"D{num}"
+
+
+def _build_journey(sid, limit=30):
+    """Computes readiness, per-domain trend, and a priority-ranked list of
+    which weak domain is most worth studying next - purely from data already
+    in the DB. No Gemini call involved, so this can be refreshed as often as
+    the user likes without touching the API quota."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT timestamp, topic, score, total, percentage, domain_stats
+           FROM exam_sessions WHERE session_id = ? ORDER BY id DESC LIMIT ?""",
+        (sid, limit),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return None
+
+    def parse_ds(raw):
+        try:
+            return json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return {}
+
+    sessions = [
+        {"timestamp": r[0], "topic": r[1], "score": r[2], "total": r[3],
+         "percentage": r[4], "domain_stats": parse_ds(r[5])}
+        for r in rows
+    ]
+
+    lifetime_total = sum(s["total"] for s in sessions)
+    lifetime_correct = sum(s["score"] for s in sessions)
+    readiness = round(lifetime_correct / lifetime_total * 100, 1) if lifetime_total else 0
+
+    cumulative = {d: {"correct": 0, "total": 0} for d in CCNA_DOMAINS}
+    for s in sessions:
+        for domain, stats in s["domain_stats"].items():
+            if domain in cumulative:
+                cumulative[domain]["correct"] += stats.get("correct", 0)
+                cumulative[domain]["total"] += stats.get("total", 0)
+
+    # Trend = latest session's domain accuracy vs. the cumulative average of
+    # every session BEFORE it - "did the most recent attempt move the needle?"
+    latest_ds = sessions[0]["domain_stats"]
+    prior_cumulative = {d: {"correct": 0, "total": 0} for d in CCNA_DOMAINS}
+    for s in sessions[1:]:
+        for domain, stats in s["domain_stats"].items():
+            if domain in prior_cumulative:
+                prior_cumulative[domain]["correct"] += stats.get("correct", 0)
+                prior_cumulative[domain]["total"] += stats.get("total", 0)
+
+    domain_rows = []
+    gap_ranking = []
+    for d in CCNA_DOMAINS:
+        cum = cumulative[d]
+        if cum["total"] == 0:
+            continue
+        pct = round(cum["correct"] / cum["total"] * 100)
+        status = "READY" if pct >= 85 else ("BUILDING" if pct >= 60 else "FOCUS")
+
+        trend = None
+        if d in latest_ds and latest_ds[d].get("total", 0) > 0:
+            prior = prior_cumulative[d]
+            if prior["total"] > 0:
+                latest_pct = latest_ds[d]["correct"] / latest_ds[d]["total"] * 100
+                prior_pct = prior["correct"] / prior["total"] * 100
+                trend = round(latest_pct - prior_pct)
+
+        domain_rows.append({
+            "id": _domain_short_id(d), "domain": d, "pct": pct,
+            "trend": trend, "status": status,
+        })
+
+        gap = 100 - pct
+        if gap > 0:
+            weight = CCNA_DOMAIN_WEIGHTS.get(d, 0)
+            gap_ranking.append({
+                "domain": d, "id": _domain_short_id(d), "gap_points": gap,
+                "weight": weight, "priority_score": round(gap * weight / 100, 1),
+            })
+
+    gap_ranking.sort(key=lambda x: x["priority_score"], reverse=True)
+    gap_ranking = gap_ranking[:3]
+
+    log = []
+    for i in range(min(len(sessions), 5)):
+        cur = sessions[i]
+        entry = f"{cur['topic']} — {cur['percentage']}% overall"
+        if i + 1 < len(sessions):
+            prev = sessions[i + 1]
+            best_domain, best_delta = None, 0
+            for d in CCNA_DOMAINS:
+                cur_s, prev_s = cur["domain_stats"].get(d), prev["domain_stats"].get(d)
+                if cur_s and prev_s and cur_s.get("total") and prev_s.get("total"):
+                    delta = (cur_s["correct"] / cur_s["total"] * 100) - (prev_s["correct"] / prev_s["total"] * 100)
+                    if abs(delta) > abs(best_delta):
+                        best_delta, best_domain = delta, d
+            if best_domain and abs(best_delta) >= 5:
+                sign = "+" if best_delta > 0 else ""
+                entry += f" · {_domain_short_id(best_domain)} {sign}{round(best_delta)}pt vs previous attempt"
+        log.append({"when": cur["timestamp"], "text": entry})
+
+    return {
+        "readiness": readiness,
+        "domain_rows": domain_rows,
+        "gap_ranking": gap_ranking,
+        "log": log,
+        "suggested_focus_domains": [g["domain"] for g in gap_ranking[:2]],
+        "sessions_counted": len(sessions),
+    }
 
 
 def _extract_json_array(text):
@@ -149,17 +317,27 @@ def _friendly_quota_message(err_msg):
     )
 
 
-def _call_gemini_for_questions(topic, n):
+def _call_gemini_for_questions(topic, n, focus_domains=None):
     """A single Gemini call requesting up to `n` questions. Not chunked -
     gemini-3.6-flash's context window comfortably fits 100 questions in one
     request, and every extra call eats into the (very small) free-tier
     daily quota."""
-    domain_instruction = (
-        f'Every question must belong to the domain "{topic}".'
-        if topic in CCNA_DOMAINS
-        else "Distribute questions realistically across the 6 CCNA domains "
-             "based on the official exam weighting."
-    )
+    focus_domains = [d for d in (focus_domains or []) if d in CCNA_DOMAINS]
+
+    if focus_domains:
+        domain_instruction = (
+            f"Weight the question distribution toward these domains, which "
+            f"the student is currently weakest in: {', '.join(focus_domains)}. "
+            f"Aim for roughly 60% of questions from these domains combined, "
+            f"and spread the remaining 40% realistically across all 6 domains."
+        )
+    elif topic in CCNA_DOMAINS:
+        domain_instruction = f'Every question must belong to the domain "{topic}".'
+    else:
+        domain_instruction = (
+            "Distribute questions realistically across the 6 CCNA domains "
+            "based on the official exam weighting."
+        )
 
     prompt = f"""Generate exactly {n} realistic, non-repeating Cisco CCNA (200-301) exam questions for topic: "{topic}".
 {domain_instruction}
@@ -203,6 +381,7 @@ Vary which letter (A/B/C/D) holds the correct answer across questions - do not a
 def generate_exam():
     data = request.json or {}
     topic = data.get("topic", "All Domains (Full Exam)")
+    focus_domains = data.get("focus_domains", [])
     try:
         count = int(data.get("count", 1))
     except (TypeError, ValueError):
@@ -211,14 +390,14 @@ def generate_exam():
     count = max(1, min(count, MAX_QUESTIONS_PER_REQUEST))
 
     try:
-        questions = _call_gemini_for_questions(topic, count)
+        questions = _call_gemini_for_questions(topic, count, focus_domains)
         # Only make a second call if the first one came back meaningfully
         # short (e.g. malformed/truncated items got filtered out) - one
         # follow-up request max, to bound quota usage at 2 calls/exam.
         shortfall = count - len(questions)
         if shortfall > 0 and len(questions) > 0:
             try:
-                extra = _call_gemini_for_questions(topic, shortfall)
+                extra = _call_gemini_for_questions(topic, shortfall, focus_domains)
                 questions.extend(extra)
             except (QuotaExceededError, RuntimeError):
                 pass  # return what we already have rather than fail the exam
@@ -256,7 +435,8 @@ def save_session():
         )
         conn.commit()
         conn.close()
-        return jsonify({"status": status, "percentage": percentage}), 200
+        journey = _build_journey(sid)
+        return jsonify({"status": status, "percentage": percentage, "journey": journey}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -287,69 +467,40 @@ def history():
 def ai_progress_agent():
     sid = session.get("sid")
     try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT timestamp, topic, score, total, percentage, status, missed_questions, domain_stats
-               FROM exam_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 10""",
-            (sid,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-
-        if not rows:
-            return jsonify({"report": "No exam history found yet for this browser session. Take a practice exam to initialize your AI progress agent!"})
-
-        # Aggregate real domain accuracy in Python rather than asking the
-        # model to eyeball/guess it from raw history - more trustworthy.
-        domain_totals = {d: {"correct": 0, "total": 0} for d in CCNA_DOMAINS}
-        history_summary = []
-        for r in rows:
-            history_summary.append({
-                "timestamp": r[0], "topic": r[1], "score": r[2],
-                "total": r[3], "percentage": r[4], "status": r[5],
+        journey = _build_journey(sid)
+        if journey is None:
+            return jsonify({
+                "report": "No exam history yet. Take a practice exam to initialize your journey.",
+                "journey": None,
             })
-            try:
-                ds = json.loads(r[7]) if r[7] else {}
-            except json.JSONDecodeError:
-                ds = {}
-            for domain, stats in ds.items():
-                if domain in domain_totals:
-                    domain_totals[domain]["correct"] += stats.get("correct", 0)
-                    domain_totals[domain]["total"] += stats.get("total", 0)
-
-        domain_lines = []
-        for d, s in domain_totals.items():
-            if s["total"] > 0:
-                pct = round(s["correct"] / s["total"] * 100, 1)
-                domain_lines.append(f"- {d}: {s['correct']}/{s['total']} correct ({pct}%)")
-            else:
-                domain_lines.append(f"- {d}: no data yet")
 
         agent_prompt = f"""You are an expert CCNA (200-301) AI Mentor Agent. A student has the following measured performance (already computed - use these exact numbers, do not recalculate):
 
-Recent exam sessions:
-{json.dumps(history_summary, indent=2)}
+Overall readiness: {journey['readiness']}% (passing standard: 85%)
 
-Measured accuracy per domain (from actual answers):
-{chr(10).join(domain_lines)}
+Per-domain status:
+{json.dumps(journey['domain_rows'], indent=2)}
 
-Provide, using clean markdown-style headings:
-1. Overall readiness assessment against the 85% passing standard.
-2. Domain-by-domain commentary using the measured percentages above (do not invent different numbers).
-3. Specific, actionable study advice for the weakest domain with data.
+Domains ranked by study priority (gap size x official exam weight):
+{json.dumps(journey['gap_ranking'], indent=2)}
 
-Keep it concise and encouraging but honest.
+Write 3-4 sentences, encouraging but honest: what's working, and specifically why the #1 priority domain above is the fastest path to a higher score. Do not invent different numbers than the ones given.
 """
         try:
             response = client.models.generate_content(model=MODEL_NAME, contents=agent_prompt)
+            report_text = response.text
         except Exception as e:
             err_msg = str(e)
             if _is_quota_error(err_msg):
-                return jsonify({"error": _friendly_quota_message(err_msg)}), 429
-            raise
+                # Structured journey data costs nothing to compute - only the
+                # written narrative needs the API, so degrade gracefully
+                # instead of losing the whole report.
+                report_text = ("(Coach note unavailable - Gemini daily quota reached. "
+                                "The stats below are still accurate; try again after the quota resets.)")
+            else:
+                raise
 
-        return jsonify({"report": response.text, "domain_totals": domain_totals})
+        return jsonify({"report": report_text, "journey": journey})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
