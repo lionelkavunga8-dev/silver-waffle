@@ -50,6 +50,13 @@
   .titlebar .dot.g { background: #4FBE85; }
   .titlebar .path { color: var(--muted); font-size: 12px; margin-left: 4px; }
 
+  .quota-ring-wrap { margin-left: auto; display: flex; align-items: center; gap: 7px; cursor: default; }
+  .quota-ring-label { font-size: 10.5px; color: var(--muted); text-align: right; line-height: 1.3; }
+  .quota-ring-label .n { color: var(--text); font-weight: 600; }
+  .quota-ring svg { display: block; }
+  .quota-ring circle.track { stroke: var(--line); fill: none; }
+  .quota-ring circle.fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.3s ease; }
+
   .toolbar { display: flex; gap: 8px; padding: 12px 14px; background: var(--panel-alt); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 
   .content { padding: 24px 24px 30px; }
@@ -167,6 +174,17 @@
   <div class="titlebar">
     <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
     <span class="path">guest@ccna-sim: ~</span>
+    <div class="quota-ring-wrap" id="quotaRingWrap" title="Estimated daily Gemini quota remaining (self-tracked by this app, resets ~midnight UTC)">
+      <div class="quota-ring-label"><span class="n" id="quotaPctText">--%</span><br>quota left</div>
+      <div class="quota-ring">
+        <svg width="30" height="30" viewBox="0 0 30 30">
+          <circle class="track" cx="15" cy="15" r="12" stroke-width="3"></circle>
+          <circle class="fill" id="quotaRingFill" cx="15" cy="15" r="12" stroke-width="3"
+                  stroke="#4FBE85" stroke-dasharray="75.4" stroke-dashoffset="0"
+                  transform="rotate(-90 15 15)"></circle>
+        </svg>
+      </div>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -226,6 +244,27 @@
 </div>
 
 <script>
+const QUOTA_CIRCUMFERENCE = 2 * Math.PI * 12;
+
+async function refreshQuotaRing() {
+  try {
+    const res = await fetch('/quota-status');
+    const data = await res.json();
+    if (data.error) return;
+    const pct = data.remaining_pct;
+    document.getElementById('quotaPctText').textContent = `${pct}%`;
+    const fill = document.getElementById('quotaRingFill');
+    fill.setAttribute('stroke-dashoffset', QUOTA_CIRCUMFERENCE * (1 - pct / 100));
+    const color = pct >= 50 ? '#4FBE85' : (pct >= 20 ? '#E0AC4E' : '#E06868');
+    fill.setAttribute('stroke', color);
+    document.getElementById('quotaRingWrap').title =
+      `Estimated: ${data.used}/${data.limit} Gemini requests used today (self-tracked by this app, resets ~midnight UTC)`;
+  } catch (err) {
+    // Non-critical - fail silently, ring just stays at its last known state.
+  }
+}
+refreshQuotaRing();
+
 let currentQuestions = [];
 let selectedTopic = "All Domains (Full Exam)";
 let selectedCount = 20;
@@ -318,6 +357,7 @@ async function fetchJourney() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     renderJourneyPanel(data.journey, data.report);
+    refreshQuotaRing();
   } catch (err) {
     panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
   }
@@ -379,9 +419,11 @@ async function requestTutorSession() {
     if (data.error) {
       if (data.progress) { renderTutorPanel(data.progress, null, null); }
       panel.insertAdjacentHTML('afterbegin', `<p class="muted">${escapeHtml(data.error)}</p>`);
+      refreshQuotaRing();
       return;
     }
     renderTutorPanel(data.progress, data.report, data.progress.lifetime_total);
+    refreshQuotaRing();
   } catch (err) {
     panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p>`;
   }
@@ -498,6 +540,7 @@ async function generateExam() {
     status.textContent = 'Error: ' + err.message;
   } finally {
     setButtonLoading(genBtn, false, '', 'run exam');
+    refreshQuotaRing();
   }
 }
 document.getElementById('generateBtn').addEventListener('click', generateExam);
