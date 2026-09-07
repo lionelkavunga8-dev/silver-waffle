@@ -60,7 +60,11 @@ def get_db():
     return psycopg2.connect(DATABASE_URL)
 
 
-MODEL_NAME = "gemini-3.6-flash"
+MODEL_NAME = "gemini-3.6-flash"  # primary
+FALLBACK_MODEL_NAME = "gemini-3.5-flash-lite"  # separate quota bucket - Google
+# scopes free-tier limits per-model, so a 429 on the primary doesn't mean the
+# fallback is exhausted too.
+GEMINI_DAILY_LIMIT = int(os.getenv("GEMINI_DAILY_LIMIT", "20"))
 MAX_QUESTIONS_PER_REQUEST = 100
 
 CCNA_DOMAINS = [
@@ -108,6 +112,14 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             cumulative_total_at_session INTEGER,
             report_text TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_usage (
+            usage_date DATE NOT NULL,
+            model_name TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY (usage_date, model_name)
         )
     ''')
     # Safe no-op migration for any pre-existing table missing newer columns.
@@ -326,8 +338,9 @@ def _validate_question(q):
 
 
 class QuotaExceededError(Exception):
-    """Raised when Gemini returns 429/RESOURCE_EXHAUSTED. Never worth
-    retrying automatically - free-tier daily caps don't clear in seconds."""
+    """Raised when Gemini returns 429/RESOURCE_EXHAUSTED on BOTH the primary
+    and fallback model. Never worth retrying automatically - free-tier daily
+    caps don't clear in seconds."""
     pass
 
 
@@ -336,14 +349,94 @@ def _is_quota_error(err_msg):
     return "429" in err_msg or "resource_exhausted" in lowered or "quota" in lowered
 
 
+def _is_fallback_worthy(err_msg):
+    # Covers both "you personally are out of quota" (429) and "the model is
+    # overloaded right now for everyone" (503/UNAVAILABLE) - both are good
+    # reasons to try a different model rather than fail outright.
+    lowered = err_msg.lower()
+    return (
+        _is_quota_error(err_msg)
+        or "503" in err_msg or "unavailable" in lowered or "overloaded" in lowered
+    )
+
+
 def _friendly_quota_message(err_msg):
     return (
-        "You've hit the Gemini API free-tier daily request limit for this "
-        "project (the account is capped, independent of how many questions "
-        "you asked for). Wait for the quota to reset, or add billing to "
-        "your Google AI Studio project to raise the limit. "
-        "See https://ai.google.dev/gemini-api/docs/rate-limits for details."
+        "Both the primary and fallback Gemini models are unavailable right now "
+        "(daily quota reached or the API is under heavy load). Wait a bit and "
+        "try again, or add billing to your Google AI Studio project to raise "
+        "the limit. See https://ai.google.dev/gemini-api/docs/rate-limits for details."
     )
+
+
+def _record_model_usage(model_name):
+    # Best-effort - usage tracking should never break the actual feature.
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO api_usage (usage_date, model_name, count)
+               VALUES (CURRENT_DATE, %s, 1)
+               ON CONFLICT (usage_date, model_name)
+               DO UPDATE SET count = api_usage.count + 1""",
+            (model_name,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _generate_with_fallback(prompt, config=None):
+    """Tries the primary model first. If it's rate-limited or overloaded,
+    automatically retries once against a model with its own separate quota
+    bucket, instead of failing outright. Returns (response, model_used)."""
+    kwargs = {"contents": prompt}
+    if config is not None:
+        kwargs["config"] = config
+
+    try:
+        response = client.models.generate_content(model=MODEL_NAME, **kwargs)
+        _record_model_usage(MODEL_NAME)
+        return response, MODEL_NAME
+    except Exception as e:
+        primary_err = str(e)
+        _record_model_usage(MODEL_NAME)  # the attempt still counted against quota
+        if not _is_fallback_worthy(primary_err):
+            raise RuntimeError(f"Gemini API Error: {primary_err}")
+
+    try:
+        response = client.models.generate_content(model=FALLBACK_MODEL_NAME, **kwargs)
+        _record_model_usage(FALLBACK_MODEL_NAME)
+        return response, FALLBACK_MODEL_NAME
+    except Exception as e2:
+        fallback_err = str(e2)
+        _record_model_usage(FALLBACK_MODEL_NAME)
+        if _is_fallback_worthy(fallback_err):
+            raise QuotaExceededError(_friendly_quota_message(fallback_err))
+        raise RuntimeError(f"Gemini API Error: {fallback_err}")
+
+
+@app.route("/quota-status", methods=["GET"])
+def quota_status():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT count FROM api_usage WHERE usage_date = CURRENT_DATE AND model_name = %s",
+            (MODEL_NAME,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        used = row[0] if row else 0
+        remaining = max(0, GEMINI_DAILY_LIMIT - used)
+        remaining_pct = round(remaining / GEMINI_DAILY_LIMIT * 100) if GEMINI_DAILY_LIMIT else 0
+        return jsonify({
+            "used": used, "limit": GEMINI_DAILY_LIMIT, "remaining": remaining,
+            "remaining_pct": remaining_pct, "model": MODEL_NAME,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _call_gemini_for_questions(topic, n, focus_domains=None):
@@ -385,16 +478,15 @@ Return STRICTLY a JSON array (no markdown, no commentary, no code fences) matchi
 Vary which letter (A/B/C/D) holds the correct answer across questions - do not always place it first."""
 
     try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
+        response, used_model = _generate_with_fallback(
+            prompt, config={"response_mime_type": "application/json"}
         )
+    except QuotaExceededError:
+        raise
+    except RuntimeError:
+        raise
     except Exception as e:
-        err_msg = str(e)
-        if _is_quota_error(err_msg):
-            raise QuotaExceededError(_friendly_quota_message(err_msg))
-        raise RuntimeError(f"Gemini API Error: {err_msg}")
+        raise RuntimeError(f"Gemini API Error: {e}")
 
     try:
         parsed = _extract_json_array(response.text)
@@ -516,16 +608,16 @@ Domains ranked by study priority (gap size x official exam weight):
 Write 3-4 sentences, encouraging but honest: what's working, and specifically why the #1 priority domain above is the fastest path to a higher score. Do not invent different numbers than the ones given.
 """
         try:
-            response = client.models.generate_content(model=MODEL_NAME, contents=agent_prompt)
+            response, used_model = _generate_with_fallback(agent_prompt)
             report_text = response.text
         except Exception as e:
             err_msg = str(e)
-            if _is_quota_error(err_msg):
+            if isinstance(e, QuotaExceededError) or _is_fallback_worthy(err_msg):
                 # Structured journey data costs nothing to compute - only the
                 # written narrative needs the API, so degrade gracefully
                 # instead of losing the whole report.
-                report_text = ("(Coach note unavailable - Gemini daily quota reached. "
-                                "The stats below are still accurate; try again after the quota resets.)")
+                report_text = ("(Coach note unavailable - both Gemini models are rate-limited "
+                                "or overloaded right now. The stats below are still accurate; try again shortly.)")
             else:
                 raise
 
@@ -627,10 +719,10 @@ Write a genuine tutoring explanation, not a report:
 Keep it warm and conversational, like a good teacher explaining something in office hours - not a bulleted corporate report.
 """
         try:
-            response = client.models.generate_content(model=MODEL_NAME, contents=tutor_prompt)
+            response, used_model = _generate_with_fallback(tutor_prompt)
         except Exception as e:
             err_msg = str(e)
-            if _is_quota_error(err_msg):
+            if isinstance(e, QuotaExceededError) or _is_fallback_worthy(err_msg):
                 # Don't consume the unlock if we couldn't actually deliver it -
                 # the student keeps their milestone and can retry later.
                 return jsonify({"error": _friendly_quota_message(err_msg), "progress": progress}), 429
