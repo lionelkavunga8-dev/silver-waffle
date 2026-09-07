@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import json
 import uuid
 import secrets
@@ -8,6 +7,7 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from werkzeug.exceptions import HTTPException
 from dotenv import load_dotenv
 from google import genai
+import psycopg2
 
 # 1. Load environment variables
 ENV_PATH = Path(__file__).resolve().parent / ".env"
@@ -17,10 +17,29 @@ api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     raise ValueError("GEMINI_API_KEY is missing from your .env file!")
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL is missing. Set it to your Postgres connection string "
+        "(e.g. from Neon or Supabase) - exam history won't survive restarts without it."
+    )
+# Some providers (e.g. Heroku-style URLs) use the old 'postgres://' scheme,
+# which psycopg2 rejects - normalize it.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
+if not FLASK_SECRET_KEY:
+    raise ValueError(
+        "FLASK_SECRET_KEY is missing. Without a fixed value here, every server "
+        "restart invalidates everyone's login/session cookies, which looks like "
+        "your progress 'resetting'. Generate one with: "
+        "python -c \"import secrets; print(secrets.token_hex(32))\" "
+        "and set it as an env var."
+    )
+
 app = Flask(__name__)
-# Needed for per-visitor sessions (keeps each user's exam history separate).
-# Set FLASK_SECRET_KEY in your .env for stable sessions across server restarts.
-app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
+app.secret_key = FLASK_SECRET_KEY
 
 client = genai.Client(api_key=api_key)
 
@@ -35,7 +54,12 @@ def handle_any_error(e):
     return jsonify({"error": f"Server error: {e}"}), 500
 
 
-DB_NAME = "exam_progress.db"
+def get_db():
+    """New connection per call - simplest safe pattern for a low-traffic app
+    with a hosted Postgres (Neon/Supabase) sitting behind a pooler anyway."""
+    return psycopg2.connect(DATABASE_URL)
+
+
 MODEL_NAME = "gemini-3.6-flash"
 MAX_QUESTIONS_PER_REQUEST = 100
 
@@ -61,13 +85,13 @@ CCNA_DOMAIN_WEIGHTS = {
 
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS exam_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             session_id TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             topic TEXT,
             score INTEGER,
             total INTEGER,
@@ -79,20 +103,16 @@ def init_db():
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tutor_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             session_id TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             cumulative_total_at_session INTEGER,
             report_text TEXT
         )
     ''')
-    # Lightweight migration in case an older DB file already exists on disk
-    # (e.g. a previous deploy) without the newer columns.
-    cursor.execute("PRAGMA table_info(exam_sessions)")
-    existing_cols = {row[1] for row in cursor.fetchall()}
-    for col, coltype in [("session_id", "TEXT"), ("domain_stats", "TEXT")]:
-        if col not in existing_cols:
-            cursor.execute(f"ALTER TABLE exam_sessions ADD COLUMN {col} {coltype}")
+    # Safe no-op migration for any pre-existing table missing newer columns.
+    cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS session_id TEXT")
+    cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS domain_stats TEXT")
     conn.commit()
     conn.close()
 
@@ -164,11 +184,11 @@ def _build_journey(sid, limit=30):
     which weak domain is most worth studying next - purely from data already
     in the DB. No Gemini call involved, so this can be refreshed as often as
     the user likes without touching the API quota."""
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
         """SELECT timestamp, topic, score, total, percentage, domain_stats
-           FROM exam_sessions WHERE session_id = ? ORDER BY id DESC LIMIT ?""",
+           FROM exam_sessions WHERE session_id = %s ORDER BY id DESC LIMIT %s""",
         (sid, limit),
     )
     rows = cursor.fetchall()
@@ -434,12 +454,12 @@ def save_session():
     sid = session.get("sid")
 
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO exam_sessions
                (session_id, topic, score, total, percentage, status, missed_questions, domain_stats)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
             (sid, topic, score, total, percentage, status, missed_questions, domain_stats),
         )
         conn.commit()
@@ -454,11 +474,11 @@ def save_session():
 def history():
     sid = session.get("sid")
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             """SELECT timestamp, topic, score, total, percentage, status
-               FROM exam_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 15""",
+               FROM exam_sessions WHERE session_id = %s ORDER BY id DESC LIMIT 15""",
             (sid,),
         )
         rows = cursor.fetchall()
@@ -520,12 +540,12 @@ TUTOR_UNLOCK_THRESHOLD = 100
 
 def _tutor_progress(sid):
     """Pure Python, zero API calls - safe to check as often as the UI wants."""
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT COALESCE(SUM(total), 0) FROM exam_sessions WHERE session_id = ?", (sid,))
+    cursor.execute("SELECT COALESCE(SUM(total), 0) FROM exam_sessions WHERE session_id = %s", (sid,))
     lifetime_total = cursor.fetchone()[0]
     cursor.execute(
-        "SELECT cumulative_total_at_session FROM tutor_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+        "SELECT cumulative_total_at_session FROM tutor_sessions WHERE session_id = %s ORDER BY id DESC LIMIT 1",
         (sid,),
     )
     row = cursor.fetchone()
@@ -567,11 +587,11 @@ def tutor_session():
         # Pull a handful of recent missed questions across ALL history so the
         # tutor can ground its explanation in concrete examples, not just
         # abstract percentages.
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             """SELECT missed_questions FROM exam_sessions
-               WHERE session_id = ? ORDER BY id DESC LIMIT 10""",
+               WHERE session_id = %s ORDER BY id DESC LIMIT 10""",
             (sid,),
         )
         rows = cursor.fetchall()
@@ -617,11 +637,11 @@ Keep it warm and conversational, like a good teacher explaining something in off
             raise
 
         report_text = response.text
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO tutor_sessions (session_id, cumulative_total_at_session, report_text)
-               VALUES (?, ?, ?)""",
+               VALUES (%s, %s, %s)""",
             (sid, progress["lifetime_total"], report_text),
         )
         conn.commit()
@@ -637,11 +657,11 @@ Keep it warm and conversational, like a good teacher explaining something in off
 def tutor_history():
     sid = session.get("sid")
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
             """SELECT timestamp, cumulative_total_at_session, report_text
-               FROM tutor_sessions WHERE session_id = ? ORDER BY id DESC LIMIT 10""",
+               FROM tutor_sessions WHERE session_id = %s ORDER BY id DESC LIMIT 10""",
             (sid,),
         )
         rows = cursor.fetchall()
