@@ -655,7 +655,53 @@ function setButtonLoading(btn, isLoading, loadingText, defaultText) {
   btn.disabled = isLoading;
   btn.textContent = isLoading ? loadingText : defaultText;
 }
+let currentQuestionIndex = 0;
 
+function updateExamNav() {
+  const track = document.getElementById('examTrack');
+  const pos = document.getElementById('examPosition');
+  const prevBtn = document.getElementById('prevQBtn');
+  const nextBtn = document.getElementById('nextQBtn');
+
+  if (!track || !pos) return;
+
+  if (Array.isArray(currentQuestions) && currentQuestions.length > 0) {
+    track.style.transform = `translateX(-${currentQuestionIndex * 100}%)`;
+    pos.textContent = `Question ${currentQuestionIndex + 1} of ${currentQuestions.length}`;
+  } else {
+    pos.textContent = '';
+  }
+
+  if (prevBtn) prevBtn.disabled = currentQuestionIndex <= 0;
+  if (nextBtn) nextBtn.disabled = !Array.isArray(currentQuestions) || currentQuestionIndex >= currentQuestions.length - 1;
+}
+
+function initExamNavigation() {
+  const prevQBtn = document.getElementById('prevQBtn');
+  const nextQBtn = document.getElementById('nextQBtn');
+
+  if (prevQBtn && !prevQBtn.dataset.bound) {
+    prevQBtn.dataset.bound = 'true';
+    prevQBtn.addEventListener('click', () => {
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        updateExamNav();
+      }
+    });
+  }
+
+  if (nextQBtn && !nextQBtn.dataset.bound) {
+    nextQBtn.dataset.bound = 'true';
+    nextQBtn.addEventListener('click', () => {
+      if (Array.isArray(currentQuestions) && currentQuestionIndex < currentQuestions.length - 1) {
+        currentQuestionIndex++;
+        updateExamNav();
+      }
+    });
+  }
+
+  updateExamNav();
+}
 async function generateExam() {
   const status = document.getElementById('status');
   const output = document.getElementById('output');
@@ -716,13 +762,7 @@ async function generateExam() {
       </div>
     `;
 
-    document.getElementById('prevQBtn').addEventListener('click', () => {
-      if (currentQuestionIndex > 0) { currentQuestionIndex--; updateExamNav(); }
-    });
-    document.getElementById('nextQBtn').addEventListener('click', () => {
-      if (currentQuestionIndex < currentQuestions.length - 1) { currentQuestionIndex++; updateExamNav(); }
-    });
-    updateExamNav();
+initExamNavigation();
 
     submitWrap.innerHTML = `<button class="run-btn" id="submitBtn">submit final exam</button>`;
     document.getElementById('submitBtn').addEventListener('click', submitExam);
