@@ -97,20 +97,50 @@
 
   .focus-banner { border: 1px solid var(--building); background: rgba(224,172,78,0.08); border-radius: 5px; padding: 10px 14px; margin-top: 14px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; }
 
-  .q-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  .q-card { margin-top: 20px; }
-  .q-text { font-size: 14px; margin-bottom: 14px; color: var(--text); }
+  .topic-search-wrap { position: relative; margin-top: 6px; }
+  .topic-search-input {
+    width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    font-family: var(--mono); font-size: 12.5px; padding: 9px 12px; border-radius: 4px;
+  }
+  .topic-search-input:focus { outline: none; border-color: var(--wire); }
+  .topic-suggestions {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    max-height: 200px; overflow-y: auto; display: none;
+  }
+  .topic-suggestions.open { display: block; }
+  .topic-suggestion { padding: 8px 12px; font-size: 12.5px; cursor: pointer; display: flex; justify-content: space-between; }
+  .topic-suggestion:hover { background: var(--panel-alt); }
+  .topic-suggestion .dom { color: var(--dim); font-size: 11px; }
+  .topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .topic-chip {
+    display: flex; align-items: center; gap: 6px; background: rgba(127,178,221,0.1);
+    border: 1px solid var(--wire); color: var(--wire); font-size: 12px; padding: 5px 8px 5px 10px; border-radius: 4px;
+  }
+  .topic-chip button { background: none; border: none; color: var(--wire); cursor: pointer; font-family: var(--mono); font-size: 13px; padding: 0; line-height: 1; }
+
+  .q-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .q-card { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding: 4px 2px; }
+  .q-text { font-size: 19px; line-height: 1.5; margin-bottom: 22px; color: var(--text); }
   label.option {
-    display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px;
-    border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; cursor: pointer; font-size: 13px;
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: 4px; margin-bottom: 10px; cursor: pointer; font-size: 16px;
   }
   label.option:hover { border-color: var(--wire); }
   label.option:has(input:checked) { border-color: var(--wire); background: rgba(127,178,221,0.07); }
-  label.option input { accent-color: var(--wire); margin-top: 2px; }
-  label.option .letter { color: var(--wire); font-weight: 700; width: 14px; flex-shrink: 0; }
-  .q-card.correct { border-left: 3px solid var(--ready); padding-left: 12px; }
-  .q-card.missed { border-left: 3px solid var(--focus); padding-left: 12px; }
-  .explanation { display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font-size: 12.5px; background: var(--panel); }
+  label.option input { accent-color: var(--wire); margin-top: 3px; }
+  label.option .letter { color: var(--wire); font-weight: 700; width: 18px; flex-shrink: 0; font-size: 17px; }
+  .q-card.correct { border-left: 3px solid var(--ready); padding-left: 14px; }
+  .q-card.missed { border-left: 3px solid var(--focus); padding-left: 14px; }
+  .explanation { display: none; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 4px; font-size: 13.5px; background: var(--panel); }
+
+  .exam-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+  .exam-nav .ghost-btn { flex: 0 0 auto; }
+  .exam-position { font-size: 12.5px; color: var(--muted); }
+  .exam-viewport { overflow: hidden; margin-top: 16px; }
+  .exam-track { display: flex; transition: transform 0.25s ease; align-items: flex-start; }
+  .exam-track.reviewing { display: block; transform: none !important; }
+  .exam-track.reviewing .q-card { flex: none; width: 100%; margin-bottom: 22px; }
 
   .status-line { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px; border-radius: 5px; margin-top: 16px; }
   .status-line.fail { background: rgba(224,104,104,0.12); border: 1px solid rgba(224,104,104,0.35); }
@@ -144,6 +174,13 @@
   .gap-line:first-of-type { border-top: none; }
   .log-entry { font-size: 12.5px; padding: 3px 0; }
   .log-entry .tag { color: var(--dim); }
+
+  .readiness-grid { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+  .readiness-metric { flex: 1 1 140px; }
+  .readiness-metric .num { font-size: 26px; font-weight: 700; color: var(--wire); }
+  .readiness-metric .num.dim-num { color: var(--dim); font-size: 16px; }
+  .readiness-metric .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .readiness-metric .subnote { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
 
   .hist-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 8px 0; border-top: 1px solid var(--line); }
   .hist-row:first-child { border-top: none; }
@@ -212,6 +249,15 @@
       </div>
 
       <div class="field">
+        <div class="section-title">--topic (optional, more specific than --domain)</div>
+        <div class="topic-search-wrap">
+          <input type="text" class="topic-search-input" id="topicSearchInput" placeholder="search e.g. OSPF, VLANs, ACLs, NAT, subnetting...">
+          <div class="topic-suggestions" id="topicSuggestions"></div>
+        </div>
+        <div class="topic-chips" id="topicChips"></div>
+      </div>
+
+      <div class="field">
         <div class="section-title">--count</div>
         <div class="flag-group" id="countFlags">
           <div class="flag" data-value="1">1</div>
@@ -244,6 +290,93 @@
 </div>
 
 <script>
+const CCNA_TOPICS = [
+  { label: "OSI and TCP/IP models", domain: "1.0 Network Fundamentals" },
+  { label: "IPv4 addressing and subnetting", domain: "1.0 Network Fundamentals" },
+  { label: "IPv6 addressing", domain: "1.0 Network Fundamentals" },
+  { label: "Network topology architectures", domain: "1.0 Network Fundamentals" },
+  { label: "Physical interfaces and cabling", domain: "1.0 Network Fundamentals" },
+  { label: "Wireless principles", domain: "1.0 Network Fundamentals" },
+  { label: "Virtualization fundamentals (VMs/containers)", domain: "1.0 Network Fundamentals" },
+  { label: "Switching concepts (MAC table, frame forwarding)", domain: "1.0 Network Fundamentals" },
+  { label: "VLANs and inter-VLAN routing", domain: "2.0 Network Access" },
+  { label: "Trunking (802.1Q)", domain: "2.0 Network Access" },
+  { label: "EtherChannel (LACP/PAgP)", domain: "2.0 Network Access" },
+  { label: "Spanning Tree Protocol (STP/RSTP)", domain: "2.0 Network Access" },
+  { label: "Wireless LAN architectures", domain: "2.0 Network Access" },
+  { label: "WLC and AP management", domain: "2.0 Network Access" },
+  { label: "Routing table components", domain: "3.0 IP Connectivity" },
+  { label: "Router forwarding decisions", domain: "3.0 IP Connectivity" },
+  { label: "Static routing (IPv4/IPv6)", domain: "3.0 IP Connectivity" },
+  { label: "OSPFv2 single area", domain: "3.0 IP Connectivity" },
+  { label: "First hop redundancy (HSRP)", domain: "3.0 IP Connectivity" },
+  { label: "NAT/PAT", domain: "4.0 IP Services" },
+  { label: "DHCP and DNS", domain: "4.0 IP Services" },
+  { label: "NTP", domain: "4.0 IP Services" },
+  { label: "SNMP and Syslog", domain: "4.0 IP Services" },
+  { label: "QoS concepts", domain: "4.0 IP Services" },
+  { label: "TFTP/FTP file transfer", domain: "4.0 IP Services" },
+  { label: "Security concepts (threats, vulnerabilities)", domain: "5.0 Security Fundamentals" },
+  { label: "Access Control Lists (standard/extended)", domain: "5.0 Security Fundamentals" },
+  { label: "Layer 2 security (port security, DHCP snooping)", domain: "5.0 Security Fundamentals" },
+  { label: "Wireless security (WPA2/WPA3)", domain: "5.0 Security Fundamentals" },
+  { label: "Remote access VPN", domain: "5.0 Security Fundamentals" },
+  { label: "AAA concepts", domain: "5.0 Security Fundamentals" },
+  { label: "Device hardening and passwords/MFA", domain: "5.0 Security Fundamentals" },
+  { label: "Impact of automation on networking", domain: "6.0 Automation & Programmability" },
+  { label: "Controller-based vs traditional networking", domain: "6.0 Automation & Programmability" },
+  { label: "REST API characteristics", domain: "6.0 Automation & Programmability" },
+  { label: "JSON data encoding", domain: "6.0 Automation & Programmability" },
+  { label: "Configuration management tools (Puppet/Chef/Ansible)", domain: "6.0 Automation & Programmability" },
+];
+
+let selectedTopicSearchItems = [];
+
+function renderTopicChips() {
+  const chipsEl = document.getElementById('topicChips');
+  chipsEl.innerHTML = selectedTopicSearchItems.map((label, i) => `
+    <span class="topic-chip">${escapeHtml(label)}<button data-i="${i}">×</button></span>
+  `).join('');
+  chipsEl.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedTopicSearchItems.splice(parseInt(btn.dataset.i), 1);
+      renderTopicChips();
+    });
+  });
+}
+
+const topicSearchInput = document.getElementById('topicSearchInput');
+const topicSuggestions = document.getElementById('topicSuggestions');
+
+topicSearchInput.addEventListener('input', () => {
+  const q = topicSearchInput.value.trim().toLowerCase();
+  if (!q) { topicSuggestions.classList.remove('open'); return; }
+  const matches = CCNA_TOPICS.filter(t =>
+    t.label.toLowerCase().includes(q) && !selectedTopicSearchItems.includes(t.label)
+  ).slice(0, 8);
+  if (!matches.length) { topicSuggestions.classList.remove('open'); return; }
+  topicSuggestions.innerHTML = matches.map(t => `
+    <div class="topic-suggestion" data-label="${escapeHtml(t.label)}">
+      <span>${escapeHtml(t.label)}</span><span class="dom">${escapeHtml(t.domain.split(' ')[0])}</span>
+    </div>
+  `).join('');
+  topicSuggestions.classList.add('open');
+});
+
+topicSuggestions.addEventListener('click', (e) => {
+  const item = e.target.closest('.topic-suggestion');
+  if (!item) return;
+  const label = item.dataset.label;
+  if (!selectedTopicSearchItems.includes(label)) selectedTopicSearchItems.push(label);
+  topicSearchInput.value = '';
+  topicSuggestions.classList.remove('open');
+  renderTopicChips();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.topic-search-wrap')) topicSuggestions.classList.remove('open');
+});
+
 const QUOTA_CIRCUMFERENCE = 2 * Math.PI * 12;
 
 async function refreshQuotaRing() {
@@ -309,39 +442,79 @@ function renderJourneyPanel(journey, report) {
       <span class="muted">close ${g.gap_points}pt gap</span>
     </div>
   `).join('');
+
+  const conceptGapHtml = (journey.concept_gaps || []).map(c => `
+    <div class="gap-line">
+      <span>${escapeHtml(c.concept)} <span class="dim">(${c.attempts} attempts, ${c.pct}%)</span></span>
+      <span class="muted">${escapeHtml(_domain_short(c.domain))}</span>
+    </div>
+  `).join('');
+
   const logHtml = journey.log.map(l => `<div class="log-entry"><span class="tag">[${escapeHtml(l.when)}]</span> ${escapeHtml(l.text)}</div>`).join('');
-  const focusIds = journey.suggested_focus_domains.map(d => d.split(' ')[0].replace('.0','')).join(', D');
+
+  const recentHtml = journey.readiness_recent !== null
+    ? `<div class="num">${journey.readiness_recent}%</div><div class="lbl">last ${journey.readiness_recent_sessions} sessions</div>`
+    : `<div class="num dim-num">--</div><div class="lbl">last 5 sessions</div><div class="subnote">need more sessions</div>`;
+
+  const predictedHtml = journey.readiness_predicted !== null
+    ? `<div class="num">${journey.readiness_predicted}%</div><div class="lbl">predicted exam score</div><div class="subnote">weighted by real exam %, ${journey.readiness_predicted_coverage} domains</div>`
+    : `<div class="num dim-num">--</div><div class="lbl">predicted exam score</div><div class="subnote">need 5+ answers per domain</div>`;
+
+  // Prefer specific concept-level focus over broad domain focus, when we have enough data.
+  const useConceptFocus = (journey.suggested_focus_concepts || []).length > 0;
+  const focusLabel = useConceptFocus
+    ? journey.suggested_focus_concepts.join(', ')
+    : journey.suggested_focus_domains.map(d => 'D' + d.split(' ')[0].replace('.0','')).join(', ');
 
   panel.innerHTML = `
-    <div class="section-title">overall readiness (target 85% to pass)</div>
-    <div class="gauge-wrap">
-      <div class="gauge-num">${journey.readiness}%</div>
-      <div class="gauge-bar"><div class="gauge-fill" style="width:${journey.readiness}%"></div></div>
+    <div class="section-title">readiness — three ways to read it</div>
+    <div class="readiness-grid">
+      <div class="readiness-metric">
+        <div class="num">${journey.readiness}%</div>
+        <div class="lbl">lifetime average</div>
+        <div class="subnote">${journey.sessions_counted} session(s) total</div>
+      </div>
+      <div class="readiness-metric">${recentHtml}</div>
+      <div class="readiness-metric">${predictedHtml}</div>
     </div>
-    <p class="muted" style="font-size:12px; margin-top:8px;">based on ${journey.sessions_counted} tracked session(s)</p>
 
-    <div class="section-title" style="margin-top:20px;">fastest path to 100% — ranked by (gap × exam weight)</div>
+    <div class="section-title" style="margin-top:22px;">fastest path to 100% — by domain (gap × exam weight)</div>
     ${gapHtml || '<p class="muted">Not enough data yet.</p>'}
+
+    <div class="section-title" style="margin-top:20px;">specific weak spots — by concept</div>
+    ${conceptGapHtml || '<p class="muted">Not enough repeated data on any one concept yet — answer a few more questions per topic and this will fill in.</p>'}
 
     <div class="section-title" style="margin-top:20px;">session log</div>
     ${logHtml || '<p class="muted">No sessions logged yet.</p>'}
 
     <p style="font-size:12.5px; margin-top:16px; line-height:1.7;">${escapeHtml(report)}</p>
 
-    ${journey.suggested_focus_domains.length ? `<button class="run-btn alt" id="buildFocusBtn">build focus exam — 60% D${focusIds}, 40% mixed</button>` : ''}
+    ${focusLabel ? `<button class="run-btn alt" id="buildFocusBtn">build focus exam — ${escapeHtml(focusLabel)}</button>` : ''}
   `;
 
   const focusBtn = document.getElementById('buildFocusBtn');
   if (focusBtn) {
     focusBtn.addEventListener('click', () => {
-      pendingFocusDomains = journey.suggested_focus_domains;
-      document.getElementById('focusBannerText').textContent =
-        `focus mode: ${pendingFocusDomains.map(d => d.split(' ')[0]).join(', ')} (60% of next exam)`;
+      if (useConceptFocus) {
+        selectedTopicSearchItems = journey.suggested_focus_concepts.slice();
+        renderTopicChips();
+        document.getElementById('focusBannerText').textContent =
+          `focus mode: ${selectedTopicSearchItems.join(', ')} (specific concepts, from your history)`;
+      } else {
+        pendingFocusDomains = journey.suggested_focus_domains;
+        document.getElementById('focusBannerText').textContent =
+          `focus mode: ${pendingFocusDomains.map(d => d.split(' ')[0]).join(', ')} (60% of next exam)`;
+      }
       document.getElementById('focusBanner').style.display = 'flex';
       panel.style.display = 'none';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }
+}
+
+function _domain_short(domain) {
+  if (!domain) return '';
+  return 'D' + domain.split(' ')[0].replace('.0', '');
 }
 
 async function fetchJourney() {
@@ -458,6 +631,8 @@ document.getElementById('tutorBtn').addEventListener('click', toggleTutor);
 document.getElementById('historyBtn').addEventListener('click', toggleHistory);
 document.getElementById('clearFocusBtn').addEventListener('click', () => {
   pendingFocusDomains = [];
+  selectedTopicSearchItems = [];
+  renderTopicChips();
   document.getElementById('focusBanner').style.display = 'none';
 });
 
@@ -501,7 +676,7 @@ async function generateExam() {
     const res = await fetch('/generate-exam', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: selectedTopic, count: selectedCount, focus_domains: pendingFocusDomains })
+      body: JSON.stringify({ topic: selectedTopic, count: selectedCount, focus_domains: pendingFocusDomains, focus_topics: selectedTopicSearchItems })
     });
     currentQuestions = await res.json();
     if (currentQuestions.error) throw new Error(currentQuestions.error);
@@ -509,9 +684,10 @@ async function generateExam() {
       throw new Error('No questions were generated. Please try again.');
     }
 
-    status.textContent = `Exam loaded: ${currentQuestions.length} question(s). Answer below, then submit.`;
+    status.textContent = `Exam loaded: ${currentQuestions.length} question(s). Use prev/next to move through them, then submit.`;
 
-    output.innerHTML = currentQuestions.map((q, idx) => `
+    currentQuestionIndex = 0;
+    const cardsHtml = currentQuestions.map((q, idx) => `
       <div class="q-card" id="card_${idx}">
         <div class="q-head"><span>question ${String(idx + 1).padStart(2,'0')} / ${currentQuestions.length}</span><span>${escapeHtml(q.domain || '')}</span></div>
         <div class="q-text">${escapeHtml(q.question)}</div>
@@ -528,6 +704,25 @@ async function generateExam() {
         </div>
       </div>
     `).join('');
+
+    output.innerHTML = `
+      <div class="exam-nav">
+        <button class="ghost-btn" id="prevQBtn">‹ prev</button>
+        <span class="exam-position" id="examPosition"></span>
+        <button class="ghost-btn" id="nextQBtn">next ›</button>
+      </div>
+      <div class="exam-viewport">
+        <div class="exam-track" id="examTrack">${cardsHtml}</div>
+      </div>
+    `;
+
+    document.getElementById('prevQBtn').addEventListener('click', () => {
+      if (currentQuestionIndex > 0) { currentQuestionIndex--; updateExamNav(); }
+    });
+    document.getElementById('nextQBtn').addEventListener('click', () => {
+      if (currentQuestionIndex < currentQuestions.length - 1) { currentQuestionIndex++; updateExamNav(); }
+    });
+    updateExamNav();
 
     submitWrap.innerHTML = `<button class="run-btn" id="submitBtn">submit final exam</button>`;
     document.getElementById('submitBtn').addEventListener('click', submitExam);
@@ -566,6 +761,7 @@ async function submitExam() {
   const totalQuestions = currentQuestions.length;
   const missedQuestionsList = [];
   const domainStats = {};
+  const conceptStats = {};
 
   currentQuestions.forEach((q, idx) => {
     const selected = document.querySelector(`input[name="q_${idx}"]:checked`);
@@ -574,17 +770,23 @@ async function submitExam() {
     const userAnswer = selected ? selected.value.trim().toUpperCase() : 'NONE';
     const correctAnswer = q.answer.trim().charAt(0).toUpperCase();
     const domain = q.domain || 'Unspecified';
+    const concept = q.concept || null;
 
     if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0 };
     domainStats[domain].total++;
+    if (concept) {
+      if (!conceptStats[concept]) conceptStats[concept] = { correct: 0, total: 0, domain };
+      conceptStats[concept].total++;
+    }
 
     if (userAnswer === correctAnswer) {
       correctCount++;
       domainStats[domain].correct++;
+      if (concept) conceptStats[concept].correct++;
       cardEl.classList.add('correct');
       cardEl.dataset.missed = 'false';
     } else {
-      missedQuestionsList.push({ question: q.question, domain, user_answered: userAnswer, correct_answer: correctAnswer, explanation: q.explanation });
+      missedQuestionsList.push({ question: q.question, domain, concept, user_answered: userAnswer, correct_answer: correctAnswer, explanation: q.explanation });
       cardEl.classList.add('missed');
       cardEl.dataset.missed = 'true';
     }
@@ -609,7 +811,7 @@ async function submitExam() {
     const res = await fetch('/save-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: selectedTopic, score: correctCount, total: totalQuestions, missed_questions: missedQuestionsList, domain_stats: domainStats })
+      body: JSON.stringify({ topic: selectedTopic, score: correctCount, total: totalQuestions, missed_questions: missedQuestionsList, domain_stats: domainStats, concept_stats: conceptStats })
     });
     const data = await res.json();
     if (data.journey) {
