@@ -88,6 +88,31 @@ CCNA_DOMAIN_WEIGHTS = {
 }
 
 
+# Curated CCNA subtopics - MUST stay in sync with CCNA_TOPICS in
+# templates/index.html (used for the search box). Kept as a fixed, bounded
+# vocabulary (not freeform LLM labels) so per-concept accuracy actually
+# accumulates cleanly instead of fragmenting across near-duplicate phrasings.
+CCNA_SUBTOPICS = [
+    "OSI and TCP/IP models", "IPv4 addressing and subnetting", "IPv6 addressing",
+    "Network topology architectures", "Physical interfaces and cabling", "Wireless principles",
+    "Virtualization fundamentals (VMs/containers)", "Switching concepts (MAC table, frame forwarding)",
+    "VLANs and inter-VLAN routing", "Trunking (802.1Q)", "EtherChannel (LACP/PAgP)",
+    "Spanning Tree Protocol (STP/RSTP)", "Wireless LAN architectures", "WLC and AP management",
+    "Routing table components", "Router forwarding decisions", "Static routing (IPv4/IPv6)",
+    "OSPFv2 single area", "First hop redundancy (HSRP)",
+    "NAT/PAT", "DHCP and DNS", "NTP", "SNMP and Syslog", "QoS concepts", "TFTP/FTP file transfer",
+    "Security concepts (threats, vulnerabilities)", "Access Control Lists (standard/extended)",
+    "Layer 2 security (port security, DHCP snooping)", "Wireless security (WPA2/WPA3)",
+    "Remote access VPN", "AAA concepts", "Device hardening and passwords/MFA",
+    "Impact of automation on networking", "Controller-based vs traditional networking",
+    "REST API characteristics", "JSON data encoding",
+    "Configuration management tools (Puppet/Chef/Ansible)",
+]
+CCNA_SUBTOPIC_SET = set(CCNA_SUBTOPICS)
+MIN_CONCEPT_SAMPLE = 2  # don't surface a "weak concept" off a single lucky/unlucky guess
+MIN_DOMAIN_SAMPLE_FOR_PREDICTION = 5  # domains with less data than this are excluded from the predicted score
+
+
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
@@ -125,6 +150,7 @@ def init_db():
     # Safe no-op migration for any pre-existing table missing newer columns.
     cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS session_id TEXT")
     cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS domain_stats TEXT")
+    cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS concept_stats TEXT")
     conn.commit()
     conn.close()
 
@@ -192,14 +218,15 @@ def _domain_short_id(domain):
 
 
 def _build_journey(sid, limit=30):
-    """Computes readiness, per-domain trend, and a priority-ranked list of
-    which weak domain is most worth studying next - purely from data already
-    in the DB. No Gemini call involved, so this can be refreshed as often as
-    the user likes without touching the API quota."""
+    """Computes readiness (three ways), per-domain trend, and priority-ranked
+    lists of what's most worth studying next - both at the broad domain
+    level and the specific concept level - purely from data already in the
+    DB. No Gemini call involved, so this can be refreshed as often as the
+    user likes without touching the API quota."""
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        """SELECT timestamp, topic, score, total, percentage, domain_stats
+        """SELECT timestamp, topic, score, total, percentage, domain_stats, concept_stats
            FROM exam_sessions WHERE session_id = %s ORDER BY id DESC LIMIT %s""",
         (sid, limit),
     )
@@ -209,7 +236,7 @@ def _build_journey(sid, limit=30):
     if not rows:
         return None
 
-    def parse_ds(raw):
+    def parse_json(raw):
         try:
             return json.loads(raw) if raw else {}
         except json.JSONDecodeError:
@@ -217,13 +244,23 @@ def _build_journey(sid, limit=30):
 
     sessions = [
         {"timestamp": r[0], "topic": r[1], "score": r[2], "total": r[3],
-         "percentage": r[4], "domain_stats": parse_ds(r[5])}
+         "percentage": r[4], "domain_stats": parse_json(r[5]), "concept_stats": parse_json(r[6])}
         for r in rows
     ]
 
     lifetime_total = sum(s["total"] for s in sessions)
     lifetime_correct = sum(s["score"] for s in sessions)
-    readiness = round(lifetime_correct / lifetime_total * 100, 1) if lifetime_total else 0
+    readiness_lifetime = round(lifetime_correct / lifetime_total * 100, 1) if lifetime_total else 0
+
+    # Recent-window readiness: pooled accuracy over just the last 5 SESSIONS.
+    # Simple and matches how most people intuitively think about "am I
+    # improving lately" - but note this counts sessions, not questions, so
+    # five 1-question sessions is a much noisier signal than five 50-question
+    # sessions. Shown alongside the lifetime number, not as a replacement.
+    recent_sessions = sessions[:5]
+    recent_total = sum(s["total"] for s in recent_sessions)
+    recent_correct = sum(s["score"] for s in recent_sessions)
+    readiness_recent = round(recent_correct / recent_total * 100, 1) if recent_total else None
 
     cumulative = {d: {"correct": 0, "total": 0} for d in CCNA_DOMAINS}
     for s in sessions:
@@ -231,6 +268,24 @@ def _build_journey(sid, limit=30):
             if domain in cumulative:
                 cumulative[domain]["correct"] += stats.get("correct", 0)
                 cumulative[domain]["total"] += stats.get("total", 0)
+
+    # Predicted exam score: weights each domain's accuracy by its REAL exam
+    # weight, instead of pooling everything equally (which silently overweights
+    # whichever domain you happen to have practiced the most). Domains with too
+    # little data are excluded and the remaining weights are renormalized -
+    # this is an honest "based on what we actually know" estimate, not a guess
+    # about domains you haven't meaningfully touched yet.
+    weighted_sum, weight_covered, domains_covered = 0.0, 0, 0
+    for d in CCNA_DOMAINS:
+        cum = cumulative[d]
+        if cum["total"] >= MIN_DOMAIN_SAMPLE_FOR_PREDICTION:
+            pct = cum["correct"] / cum["total"] * 100
+            w = CCNA_DOMAIN_WEIGHTS.get(d, 0)
+            weighted_sum += pct * w
+            weight_covered += w
+            domains_covered += 1
+    readiness_predicted = round(weighted_sum / weight_covered, 1) if weight_covered else None
+    predicted_coverage = f"{domains_covered}/6"
 
     # Trend = latest session's domain accuracy vs. the cumulative average of
     # every session BEFORE it - "did the most recent attempt move the needle?"
@@ -275,6 +330,41 @@ def _build_journey(sid, limit=30):
     gap_ranking.sort(key=lambda x: x["priority_score"], reverse=True)
     gap_ranking = gap_ranking[:3]
 
+    # Concept-level gaps: the same idea as domain gap_ranking, but at the
+    # specific-subtopic level, so "build focus exam" can target exactly what
+    # you're missing (e.g. "OSPFv2 single area") instead of just a broad
+    # domain. Requires MIN_CONCEPT_SAMPLE attempts before a concept is
+    # eligible, so one unlucky guess doesn't get flagged as a weak spot.
+    concept_cumulative = {}
+    concept_domain_map = {}
+    for s in sessions:
+        for concept, stats in s["concept_stats"].items():
+            if concept not in CCNA_SUBTOPIC_SET:
+                continue
+            bucket = concept_cumulative.setdefault(concept, {"correct": 0, "total": 0})
+            bucket["correct"] += stats.get("correct", 0)
+            bucket["total"] += stats.get("total", 0)
+            if "domain" in stats:
+                concept_domain_map[concept] = stats["domain"]
+
+    concept_gaps = []
+    for concept, cum in concept_cumulative.items():
+        if cum["total"] < MIN_CONCEPT_SAMPLE:
+            continue
+        pct = round(cum["correct"] / cum["total"] * 100)
+        gap = 100 - pct
+        if gap <= 0:
+            continue
+        parent_domain = concept_domain_map.get(concept)
+        weight = CCNA_DOMAIN_WEIGHTS.get(parent_domain, 15)  # mild default if unknown
+        concept_gaps.append({
+            "concept": concept, "domain": parent_domain, "pct": pct,
+            "gap_points": gap, "attempts": cum["total"],
+            "priority_score": round(gap * weight / 100, 1),
+        })
+    concept_gaps.sort(key=lambda x: x["priority_score"], reverse=True)
+    concept_gaps = concept_gaps[:5]
+
     log = []
     for i in range(min(len(sessions), 5)):
         cur = sessions[i]
@@ -294,11 +384,17 @@ def _build_journey(sid, limit=30):
         log.append({"when": cur["timestamp"], "text": entry})
 
     return {
-        "readiness": readiness,
+        "readiness": readiness_lifetime,
+        "readiness_recent": readiness_recent,
+        "readiness_recent_sessions": len(recent_sessions),
+        "readiness_predicted": readiness_predicted,
+        "readiness_predicted_coverage": predicted_coverage,
         "domain_rows": domain_rows,
         "gap_ranking": gap_ranking,
+        "concept_gaps": concept_gaps,
         "log": log,
         "suggested_focus_domains": [g["domain"] for g in gap_ranking[:2]],
+        "suggested_focus_concepts": [c["concept"] for c in concept_gaps[:3]],
         "sessions_counted": len(sessions),
     }
 
@@ -334,6 +430,11 @@ def _validate_question(q):
         # Don't hard-fail on a missing/odd domain label; fall back gracefully
         # so a single formatting slip doesn't discard an otherwise-good question.
         q["domain"] = q.get("domain") if q.get("domain") in CCNA_DOMAINS else "Unspecified"
+    # Same softness for concept - if the model didn't copy a subtopic label
+    # verbatim, don't discard the question, just leave it untracked at the
+    # concept level (domain-level stats still work fine either way).
+    if q.get("concept") not in CCNA_SUBTOPIC_SET:
+        q["concept"] = None
     return True
 
 
@@ -439,14 +540,24 @@ def quota_status():
         return jsonify({"error": str(e)}), 500
 
 
-def _call_gemini_for_questions(topic, n, focus_domains=None):
+def _call_gemini_for_questions(topic, n, focus_domains=None, focus_topics=None):
     """A single Gemini call requesting up to `n` questions. Not chunked -
     gemini-3.6-flash's context window comfortably fits 100 questions in one
     request, and every extra call eats into the (very small) free-tier
     daily quota."""
     focus_domains = [d for d in (focus_domains or []) if d in CCNA_DOMAINS]
+    # Cap and sanitize: these come from free-text-adjacent client input, so
+    # bound both the count and length of any single topic string.
+    focus_topics = [str(t)[:80] for t in (focus_topics or [])][:8]
 
-    if focus_domains:
+    if focus_topics:
+        domain_instruction = (
+            f"Generate every question specifically about these exact CCNA subtopics, "
+            f"and nothing else: {', '.join(focus_topics)}. Distribute questions "
+            f"roughly evenly across the listed subtopics. Still tag each question's "
+            f"\"domain\" field with whichever of the 6 official domains it actually belongs to."
+        )
+    elif focus_domains:
         domain_instruction = (
             f"Weight the question distribution toward these domains, which "
             f"the student is currently weakest in: {', '.join(focus_domains)}. "
@@ -471,7 +582,8 @@ Return STRICTLY a JSON array (no markdown, no commentary, no code fences) matchi
     "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
     "answer": "A",
     "explanation": "Clear CCNA technical explanation",
-    "domain": "One of: {', '.join(CCNA_DOMAINS)}"
+    "domain": "One of: {', '.join(CCNA_DOMAINS)}",
+    "concept": "The single closest match from this exact list (copy it verbatim, do not paraphrase): {', '.join(CCNA_SUBTOPICS)}"
   }}
 ]
 
@@ -503,6 +615,7 @@ def generate_exam():
     data = request.json or {}
     topic = data.get("topic", "All Domains (Full Exam)")
     focus_domains = data.get("focus_domains", [])
+    focus_topics = data.get("focus_topics", [])
     try:
         count = int(data.get("count", 1))
     except (TypeError, ValueError):
@@ -511,14 +624,14 @@ def generate_exam():
     count = max(1, min(count, MAX_QUESTIONS_PER_REQUEST))
 
     try:
-        questions = _call_gemini_for_questions(topic, count, focus_domains)
+        questions = _call_gemini_for_questions(topic, count, focus_domains, focus_topics)
         # Only make a second call if the first one came back meaningfully
         # short (e.g. malformed/truncated items got filtered out) - one
         # follow-up request max, to bound quota usage at 2 calls/exam.
         shortfall = count - len(questions)
         if shortfall > 0 and len(questions) > 0:
             try:
-                extra = _call_gemini_for_questions(topic, shortfall, focus_domains)
+                extra = _call_gemini_for_questions(topic, shortfall, focus_domains, focus_topics)
                 questions.extend(extra)
             except (QuotaExceededError, RuntimeError):
                 pass  # return what we already have rather than fail the exam
@@ -543,6 +656,7 @@ def save_session():
     status = "PASSED" if percentage >= 85.0 else "FAILED"
     missed_questions = json.dumps(data.get("missed_questions", []))
     domain_stats = json.dumps(data.get("domain_stats", {}))
+    concept_stats = json.dumps(data.get("concept_stats", {}))
     sid = session.get("sid")
 
     try:
@@ -550,9 +664,9 @@ def save_session():
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO exam_sessions
-               (session_id, topic, score, total, percentage, status, missed_questions, domain_stats)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-            (sid, topic, score, total, percentage, status, missed_questions, domain_stats),
+               (session_id, topic, score, total, percentage, status, missed_questions, domain_stats, concept_stats)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (sid, topic, score, total, percentage, status, missed_questions, domain_stats, concept_stats),
         )
         conn.commit()
         conn.close()
