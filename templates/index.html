@@ -689,6 +689,13 @@ function updateExamNav() {
   if (nextBtn) nextBtn.disabled = !Array.isArray(currentQuestions) || currentQuestionIndex >= currentQuestions.length - 1;
 }
 
+// Show submit button only when user reaches the last question
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn) {
+    const isLastQuestion = Array.isArray(currentQuestions) && currentQuestionIndex >= currentQuestions.length - 1;
+    submitBtn.style.display = isLastQuestion ? 'inline-block' : 'none';
+  }
+
 function initExamNavigation() {
   const prevQBtn = document.getElementById('prevQBtn');
   const nextQBtn = document.getElementById('nextQBtn');
@@ -774,8 +781,7 @@ async function generateExam() {
     `;
 
 initExamNavigation();
-
-    submitWrap.innerHTML = `<button class="run-btn" id="submitBtn">submit final exam</button>`;
+submitWrap.innerHTML = `<button class="run-btn alt" id="submitBtn" style="display:none;">review and submit exam</button>`;
     document.getElementById('submitBtn').addEventListener('click', submitExam);
 
     if (pendingFocusDomains.length) {
