@@ -330,6 +330,20 @@ const CCNA_TOPICS = [
   { label: "Configuration management tools (Puppet/Chef/Ansible)", domain: "6.0 Automation & Programmability" },
 ];
 
+async function safeFetch(url, options = {}) {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get("content-type");
+  
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(`Server returned HTML instead of JSON (Status ${res.status}). Make sure your backend server is running.`);
+  }
+  
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
 let selectedTopicSearchItems = [];
 
 function renderTopicChips() {
@@ -381,10 +395,9 @@ const QUOTA_CIRCUMFERENCE = 2 * Math.PI * 12;
 
 async function refreshQuotaRing() {
   try {
-    const res = await fetch('/quota-status');
-    const data = await res.json();
-    if (data.error) return;
+    const data = await safeFetch('/quota-status');
     const pct = data.remaining_pct;
+    // ...
     document.getElementById('quotaPctText').textContent = `${pct}%`;
     const fill = document.getElementById('quotaRingFill');
     fill.setAttribute('stroke-dashoffset', QUOTA_CIRCUMFERENCE * (1 - pct / 100));
@@ -719,13 +732,11 @@ async function generateExam() {
   setButtonLoading(genBtn, true, 'generating...', 'run exam');
 
   try {
-    const res = await fetch('/generate-exam', {
+   currentQuestions = await safeFetch('/generate-exam', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic: selectedTopic, count: selectedCount, focus_domains: pendingFocusDomains, focus_topics: selectedTopicSearchItems })
     });
-    currentQuestions = await res.json();
-    if (currentQuestions.error) throw new Error(currentQuestions.error);
     if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
       throw new Error('No questions were generated. Please try again.');
     }
