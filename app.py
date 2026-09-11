@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import secrets
+import hashlib
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.exceptions import HTTPException
@@ -107,6 +108,9 @@ CCNA_SUBTOPICS = [
     "Impact of automation on networking", "Controller-based vs traditional networking",
     "REST API characteristics", "JSON data encoding",
     "Configuration management tools (Puppet/Chef/Ansible)",
+    "CLI navigation and modes (user/privileged/global config)",
+    "Basic device configuration (hostname, passwords, banners)",
+    "Interpreting show command output",
 ]
 CCNA_SUBTOPIC_SET = set(CCNA_SUBTOPICS)
 MIN_CONCEPT_SAMPLE = 2  # don't surface a "weak concept" off a single lucky/unlucky guess
@@ -145,6 +149,18 @@ def init_db():
             model_name TEXT NOT NULL,
             count INTEGER DEFAULT 0,
             PRIMARY KEY (usage_date, model_name)
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS question_history (
+            session_id TEXT NOT NULL,
+            question_hash TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            domain TEXT,
+            concept TEXT,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            times_seen INTEGER DEFAULT 1,
+            PRIMARY KEY (session_id, question_hash)
         )
     ''')
     # Safe no-op migration for any pre-existing table missing newer columns.
@@ -540,7 +556,86 @@ def quota_status():
         return jsonify({"error": str(e)}), 500
 
 
-def _call_gemini_for_questions(topic, n, focus_domains=None, focus_topics=None):
+def _question_hash(text):
+    normalized = " ".join((text or "").strip().lower().split())
+    return hashlib.sha256(normalized.encode()).hexdigest()[:24]
+
+
+def _record_question_history(sid, questions):
+    """Records that these questions were shown to this session - powers both
+    duplicate-avoidance (recent question texts) and topic coverage tracking
+    (which concepts have been shown at all). Best-effort: never blocks the
+    actual exam if it fails."""
+    if not questions:
+        return
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        for q in questions:
+            h = _question_hash(q.get("question", ""))
+            cursor.execute(
+                """INSERT INTO question_history (session_id, question_hash, question_text, domain, concept)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (session_id, question_hash)
+                   DO UPDATE SET times_seen = question_history.times_seen + 1, last_seen = CURRENT_TIMESTAMP""",
+                (sid, h, (q.get("question") or "")[:500], q.get("domain"), q.get("concept")),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _get_recent_question_texts(sid, limit=30):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT question_text FROM question_history
+               WHERE session_id = %s ORDER BY last_seen DESC LIMIT %s""",
+            (sid, limit),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+def _get_coverage(sid):
+    """Which of the fixed, bounded set of official CCNA subtopics has this
+    session been shown at least one question about? This is the achievable
+    version of 'have I seen everything' - not literally every possible
+    question (unbounded), but every named item on the real exam blueprint."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT concept FROM question_history WHERE session_id = %s AND concept IS NOT NULL",
+            (sid,),
+        )
+        covered = {r[0] for r in cursor.fetchall() if r[0] in CCNA_SUBTOPIC_SET}
+        conn.close()
+    except Exception:
+        covered = set()
+    uncovered = [t for t in CCNA_SUBTOPICS if t not in covered]
+    return {
+        "covered_count": len(covered),
+        "total": len(CCNA_SUBTOPICS),
+        "uncovered": uncovered,
+    }
+
+
+@app.route("/coverage-status", methods=["GET"])
+def coverage_status():
+    sid = session.get("sid")
+    try:
+        return jsonify(_get_coverage(sid))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _call_gemini_for_questions(topic, n, focus_domains=None, focus_topics=None, avoid_questions=None):
     """A single Gemini call requesting up to `n` questions. Not chunked -
     gemini-3.6-flash's context window comfortably fits 100 questions in one
     request, and every extra call eats into the (very small) free-tier
@@ -549,6 +644,7 @@ def _call_gemini_for_questions(topic, n, focus_domains=None, focus_topics=None):
     # Cap and sanitize: these come from free-text-adjacent client input, so
     # bound both the count and length of any single topic string.
     focus_topics = [str(t)[:80] for t in (focus_topics or [])][:8]
+    avoid_questions = [str(q)[:200] for q in (avoid_questions or [])][:30]
 
     if focus_topics:
         domain_instruction = (
@@ -572,8 +668,16 @@ def _call_gemini_for_questions(topic, n, focus_domains=None, focus_topics=None):
             "based on the official exam weighting."
         )
 
+    avoid_instruction = ""
+    if avoid_questions:
+        avoid_list = "\n".join(f'- "{q}"' for q in avoid_questions)
+        avoid_instruction = f"""
+
+The student has already been asked these questions recently - do NOT repeat them or generate close rephrasings of them. Ask about different specific facts, commands, or scenarios instead:
+{avoid_list}"""
+
     prompt = f"""Generate exactly {n} realistic, non-repeating Cisco CCNA (200-301) exam questions for topic: "{topic}".
-{domain_instruction}
+{domain_instruction}{avoid_instruction}
 
 Return STRICTLY a JSON array (no markdown, no commentary, no code fences) matching this exact format:
 [
@@ -616,22 +720,26 @@ def generate_exam():
     topic = data.get("topic", "All Domains (Full Exam)")
     focus_domains = data.get("focus_domains", [])
     focus_topics = data.get("focus_topics", [])
+    sid = session.get("sid")
     try:
         count = int(data.get("count", 1))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid question count"}), 400
 
     count = max(1, min(count, MAX_QUESTIONS_PER_REQUEST))
+    avoid_questions = _get_recent_question_texts(sid)
 
     try:
-        questions = _call_gemini_for_questions(topic, count, focus_domains, focus_topics)
+        questions = _call_gemini_for_questions(topic, count, focus_domains, focus_topics, avoid_questions)
         # Only make a second call if the first one came back meaningfully
         # short (e.g. malformed/truncated items got filtered out) - one
         # follow-up request max, to bound quota usage at 2 calls/exam.
         shortfall = count - len(questions)
         if shortfall > 0 and len(questions) > 0:
             try:
-                extra = _call_gemini_for_questions(topic, shortfall, focus_domains, focus_topics)
+                # Also avoid repeating whatever this same batch just generated.
+                extra_avoid = avoid_questions + [q["question"] for q in questions]
+                extra = _call_gemini_for_questions(topic, shortfall, focus_domains, focus_topics, extra_avoid)
                 questions.extend(extra)
             except (QuotaExceededError, RuntimeError):
                 pass  # return what we already have rather than fail the exam
@@ -643,7 +751,113 @@ def generate_exam():
     if not questions:
         return jsonify({"error": "Gemini did not return any usable questions. Please try again."}), 500
 
+    _record_question_history(sid, questions)
+
     return jsonify(questions), 200
+
+
+def _extract_json_object(text):
+    """Same defensive markdown-fence stripping as _extract_json_array, for
+    single-object JSON responses (lab scenarios, lab grading)."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    return json.loads(text)
+
+
+@app.route("/generate-lab", methods=["POST"])
+def generate_lab():
+    data = request.json or {}
+    topic = data.get("topic")  # optional - a specific subtopic string
+    topic_instruction = (
+        f'The scenario must be about this specific CCNA subtopic: "{topic}".'
+        if topic in CCNA_SUBTOPIC_SET
+        else "Pick any realistic CLI configuration task from across the CCNA 200-301 blueprint."
+    )
+
+    prompt = f"""Generate one realistic Cisco IOS CLI configuration lab exercise for CCNA 200-301 practice.
+{topic_instruction}
+
+Return STRICTLY a JSON object (no markdown, no commentary) matching this exact format:
+{{
+  "scenario": "A short, specific task description, e.g. 'Configure the hostname of this router to R1 and set an enable secret of cisco123.'",
+  "expected_answer": "The canonical command(s) that accomplish the task, newline-separated if more than one.",
+  "acceptable_variations": ["one or two other valid ways to phrase/abbreviate the same commands, e.g. using 'conf t' instead of 'configure terminal'"],
+  "domain": "One of: {', '.join(CCNA_DOMAINS)}",
+  "concept": "The single closest match from this exact list (copy it verbatim): {', '.join(CCNA_SUBTOPICS)}"
+}}
+
+Keep the scenario to one or two sentences. Prefer common, exam-realistic tasks (interface config, routing, ACLs, VLANs, NAT, basic device setup) over obscure edge cases."""
+
+    try:
+        response, used_model = _generate_with_fallback(prompt, config={"response_mime_type": "application/json"})
+    except QuotaExceededError as e:
+        return jsonify({"error": str(e)}), 429
+    except Exception as e:
+        return jsonify({"error": f"Gemini API Error: {e}"}), 500
+
+    try:
+        lab = _extract_json_object(response.text)
+    except (json.JSONDecodeError, ValueError) as e:
+        return jsonify({"error": f"Gemini returned malformed data: {e}"}), 500
+
+    if not isinstance(lab, dict) or not lab.get("scenario") or not lab.get("expected_answer"):
+        return jsonify({"error": "Gemini did not return a usable lab scenario. Please try again."}), 500
+    if lab.get("concept") not in CCNA_SUBTOPIC_SET:
+        lab["concept"] = None
+    if lab.get("domain") not in CCNA_DOMAINS:
+        lab["domain"] = "Unspecified"
+
+    return jsonify(lab), 200
+
+
+@app.route("/check-lab-answer", methods=["POST"])
+def check_lab_answer():
+    data = request.json or {}
+    scenario = str(data.get("scenario", ""))[:500]
+    expected_answer = str(data.get("expected_answer", ""))[:500]
+    acceptable_variations = [str(v)[:300] for v in data.get("acceptable_variations", [])][:5]
+    user_answer = str(data.get("user_answer", ""))[:500]
+
+    if not scenario or not expected_answer:
+        return jsonify({"error": "Missing scenario or expected answer."}), 400
+    if not user_answer.strip():
+        return jsonify({"error": "Type a command before checking."}), 400
+
+    prompt = f"""You are grading a Cisco IOS CLI lab exercise. Be lenient about command abbreviations, ordering
+of independent commands, and equivalent valid syntax (e.g. "conf t" = "configure terminal", "int gi0/1" = "interface gigabitethernet0/1").
+Be strict about actually accomplishing the task correctly.
+
+Scenario: {scenario}
+Canonical correct answer: {expected_answer}
+Other acceptable variations: {json.dumps(acceptable_variations)}
+Student's answer: {user_answer}
+
+Return STRICTLY a JSON object (no markdown, no commentary):
+{{
+  "correct": true or false,
+  "feedback": "1-2 sentences: if correct, briefly confirm why. If incorrect, explain specifically what's wrong or missing, without just repeating the canonical answer verbatim."
+}}"""
+
+    try:
+        response, used_model = _generate_with_fallback(prompt, config={"response_mime_type": "application/json"})
+    except QuotaExceededError as e:
+        return jsonify({"error": str(e)}), 429
+    except Exception as e:
+        return jsonify({"error": f"Gemini API Error: {e}"}), 500
+
+    try:
+        result = _extract_json_object(response.text)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"error": "Could not grade that answer, please try again."}), 500
+
+    if not isinstance(result, dict) or "correct" not in result:
+        return jsonify({"error": "Could not grade that answer, please try again."}), 500
+
+    return jsonify({"correct": bool(result.get("correct")), "feedback": result.get("feedback", "")}), 200
 
 
 @app.route("/save-session", methods=["POST"])
