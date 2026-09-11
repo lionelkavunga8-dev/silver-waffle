@@ -6,18 +6,23 @@
 <title>CCNA 200-301 Exam Simulator & AI Agent</title>
 <style>
   :root {
-    --bg: #0E161D;
-    --panel: #121C24;
-    --panel-alt: #16212B;
-    --line: #263440;
-    --text: #D7DEE3;
-    --muted: #6B7885;
-    --dim: #4A5966;
-    --wire: #7FB2DD;
-    --ready: #4FBE85;
-    --building: #E0AC4E;
-    --focus: #E06868;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --bg: #F7F7F6;
+    --panel: #FFFFFF;
+    --panel-alt: #FAFAFB;
+    --line: #E5E7EB;
+    --line-soft: #F0F1F3;
+    --text: #16181C;
+    --muted: #6B7280;
+    --dim: #9AA1AB;
+    --wire: #00B894;
+    --wire-tint: #F0FDF9;
+    --ready: #1F9D55;
+    --ready-tint: #EAF7EE;
+    --building: #C6740A;
+    --building-tint: #FDF3E3;
+    --focus: #D0453A;
+    --focus-tint: #FCEBEA;
+    --mono: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -26,115 +31,115 @@
     color: var(--text);
     font-family: var(--mono);
     font-size: 14px;
+    -webkit-font-smoothing: antialiased;
   }
   .frame {
     max-width: 760px;
     margin: 28px auto 80px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     background: var(--panel);
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04);
   }
   .titlebar {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 14px;
-    background: var(--panel-alt);
+    padding: 18px 22px;
+    background: var(--panel);
     border-bottom: 1px solid var(--line);
   }
-  .titlebar .dots { display: flex; gap: 6px; }
-  .titlebar .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .titlebar .dot.r { background: #E06868; }
-  .titlebar .dot.y { background: #E0AC4E; }
-  .titlebar .dot.g { background: #4FBE85; }
-  .titlebar .path { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .titlebar .path { color: var(--text); font-size: 15px; font-weight: 600; }
 
-  .quota-ring-wrap { margin-left: auto; display: flex; align-items: center; gap: 7px; cursor: default; }
+  .quota-ring-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; cursor: default; }
   .quota-ring-label { font-size: 10.5px; color: var(--muted); text-align: right; line-height: 1.3; }
-  .quota-ring-label .n { color: var(--text); font-weight: 600; }
+  .quota-ring-label .n { color: var(--text); font-weight: 700; }
   .quota-ring svg { display: block; }
   .quota-ring circle.track { stroke: var(--line); fill: none; }
   .quota-ring circle.fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset 0.3s ease; }
 
-  .toolbar { display: flex; gap: 8px; padding: 12px 14px; background: var(--panel-alt); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .toolbar { display: flex; gap: 8px; padding: 14px 22px; background: var(--panel-alt); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 
-  .content { padding: 24px 24px 30px; }
+  .content { padding: 26px 26px 32px; }
 
-  .prompt { color: var(--wire); }
-  .cursor { display: inline-block; width: 7px; height: 15px; background: var(--ready); margin-left: 4px; animation: blink 1s steps(1) infinite; vertical-align: -2px; }
-  @keyframes blink { 50% { opacity: 0; } }
+  .prompt { display: none; }
+  .cursor { display: none; }
 
   p { line-height: 1.6; color: var(--text); margin: 8px 0; }
   .muted { color: var(--muted); }
   .dim { color: var(--dim); }
 
-  .box { border: 1px solid var(--line); border-radius: 5px; background: var(--panel-alt); padding: 16px 18px; margin-top: 16px; }
-  .section-title { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .box { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 18px 20px; margin-top: 16px; }
+  .section-title { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
 
-  .field { margin-top: 16px; }
+  .field { margin-top: 18px; }
   .flag-group { display: flex; flex-wrap: wrap; gap: 8px; }
   .flag {
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
-    padding: 7px 12px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; cursor: pointer;
+    padding: 8px 13px; border-radius: 20px; font-family: var(--mono); font-size: 12.5px; cursor: pointer;
   }
-  .flag.selected { border-color: var(--wire); color: var(--wire); background: rgba(127,178,221,0.08); }
+  .flag:hover { border-color: var(--dim); }
+  .flag.selected { border-color: var(--wire); color: var(--wire); background: var(--wire-tint); font-weight: 600; }
   .flag.suggested { border-color: var(--building); }
 
   button.run-btn, button.ghost-btn, button.small-btn {
     font-family: var(--mono);
-    border-radius: 5px;
+    border-radius: 8px;
     cursor: pointer;
   }
   .run-btn {
-    background: var(--ready); color: #08130D; border: none; font-weight: 700; font-size: 13px; padding: 11px 18px; margin-top: 20px;
+    background: var(--text); color: #fff; border: none; font-weight: 600; font-size: 13.5px; padding: 12px 20px; margin-top: 20px;
   }
-  .run-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .run-btn.alt { background: var(--wire); color: #08131C; }
-  .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--text); font-size: 12.5px; padding: 9px 14px; }
-  .ghost-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .small-btn { background: transparent; border: none; color: var(--wire); font-size: 12px; padding: 0; text-decoration: underline; }
+  .run-btn:hover { background: #2A2D33; }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .run-btn.alt { background: var(--wire); color: #fff; }
+  .run-btn.alt:hover { background: #009f80; }
+  .ghost-btn { background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 12.5px; padding: 9px 14px; font-weight: 500; }
+  .ghost-btn:hover { border-color: var(--dim); }
+  .ghost-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .small-btn { background: transparent; border: none; color: var(--wire); font-size: 12px; padding: 0; text-decoration: underline; cursor: pointer; }
 
-  .focus-banner { border: 1px solid var(--building); background: rgba(224,172,78,0.08); border-radius: 5px; padding: 10px 14px; margin-top: 14px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; }
+  .focus-banner { border: 1px solid var(--building); background: var(--building-tint); border-radius: 8px; padding: 11px 14px; margin-top: 14px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; color: #7A4D07; }
 
   .topic-search-wrap { position: relative; margin-top: 6px; }
   .topic-search-input {
     width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--text);
-    font-family: var(--mono); font-size: 12.5px; padding: 9px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 12.5px; padding: 10px 13px; border-radius: 8px;
   }
   .topic-search-input:focus { outline: none; border-color: var(--wire); }
   .topic-suggestions {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
-    max-height: 200px; overflow-y: auto; display: none;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    max-height: 200px; overflow-y: auto; display: none; box-shadow: 0 8px 20px rgba(16,24,40,0.08);
   }
   .topic-suggestions.open { display: block; }
-  .topic-suggestion { padding: 8px 12px; font-size: 12.5px; cursor: pointer; display: flex; justify-content: space-between; }
+  .topic-suggestion { padding: 9px 13px; font-size: 12.5px; cursor: pointer; display: flex; justify-content: space-between; }
   .topic-suggestion:hover { background: var(--panel-alt); }
   .topic-suggestion .dom { color: var(--dim); font-size: 11px; }
   .topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .topic-chip {
-    display: flex; align-items: center; gap: 6px; background: rgba(127,178,221,0.1);
-    border: 1px solid var(--wire); color: var(--wire); font-size: 12px; padding: 5px 8px 5px 10px; border-radius: 4px;
+    display: flex; align-items: center; gap: 6px; background: var(--wire-tint);
+    border: 1px solid var(--wire); color: #007A62; font-size: 12px; padding: 5px 8px 5px 10px; border-radius: 20px;
   }
-  .topic-chip button { background: none; border: none; color: var(--wire); cursor: pointer; font-family: var(--mono); font-size: 13px; padding: 0; line-height: 1; }
+  .topic-chip button { background: none; border: none; color: #007A62; cursor: pointer; font-family: var(--mono); font-size: 13px; padding: 0; line-height: 1; }
 
   .q-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
   .q-card { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding: 4px 2px; }
-  .q-text { font-size: 19px; line-height: 1.5; margin-bottom: 22px; color: var(--text); }
+  .q-text { font-size: 16px; line-height: 1.5; margin-bottom: 22px; color: var(--text); font-weight: 500; }
   label.option {
-    display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px;
-    border: 1px solid var(--line); border-radius: 4px; margin-bottom: 10px; cursor: pointer; font-size: 16px;
+    display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px;
+    border: 1px solid var(--line); border-radius: 8px; margin-bottom: 9px; cursor: pointer; font-size: 13.5px;
   }
-  label.option:hover { border-color: var(--wire); }
-  label.option:has(input:checked) { border-color: var(--wire); background: rgba(127,178,221,0.07); }
+  label.option:hover { border-color: var(--dim); }
+  label.option:has(input:checked) { border-color: var(--wire); background: var(--wire-tint); }
   label.option input { accent-color: var(--wire); margin-top: 3px; }
-  label.option .letter { color: var(--wire); font-weight: 700; width: 18px; flex-shrink: 0; font-size: 17px; }
+  label.option .letter { color: var(--wire); font-weight: 700; width: 18px; flex-shrink: 0; font-size: 14px; }
   .q-card.correct { border-left: 3px solid var(--ready); padding-left: 14px; }
   .q-card.missed { border-left: 3px solid var(--focus); padding-left: 14px; }
-  .explanation { display: none; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 4px; font-size: 13.5px; background: var(--panel); }
+  .explanation { display: none; margin-top: 14px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; background: var(--panel-alt); }
 
-  .exam-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+  .exam-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 36px; }
   .exam-nav .ghost-btn { flex: 0 0 auto; }
   .exam-position { font-size: 12.5px; color: var(--muted); }
   .exam-viewport { overflow: hidden; margin-top: 16px; }
@@ -142,15 +147,16 @@
   .exam-track.reviewing { display: block; transform: none !important; }
   .exam-track.reviewing .q-card { flex: none; width: 100%; margin-bottom: 22px; }
 
-  .status-line { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px; border-radius: 5px; margin-top: 16px; }
-  .status-line.fail { background: rgba(224,104,104,0.12); border: 1px solid rgba(224,104,104,0.35); }
-  .status-line.pass { background: rgba(79,190,133,0.12); border: 1px solid rgba(79,190,133,0.35); }
+  .status-line { display: flex; justify-content: space-between; align-items: baseline; padding: 13px 16px; border-radius: 10px; margin-top: 16px; }
+  .status-line.fail { background: var(--focus-tint); border: 1px solid #F5C6C2; }
+  .status-line.pass { background: var(--ready-tint); border: 1px solid #BFE5CC; }
   .status-line .big { font-size: 16px; font-weight: 700; }
   .status-line.fail .big { color: var(--focus); }
   .status-line.pass .big { color: var(--ready); }
 
-  .cli-row { display: flex; color: var(--text); padding: 4px 0; font-size: 12.5px; align-items: baseline; }
-  .cli-id { color: var(--wire); width: 30px; flex-shrink: 0; }
+  .cli-row { display: flex; color: var(--text); padding: 6px 0; font-size: 12.5px; align-items: baseline; border-top: 1px solid var(--line-soft); }
+  .cli-row:first-child { border-top: none; }
+  .cli-id { color: var(--wire); width: 30px; flex-shrink: 0; font-weight: 600; }
   .cli-name { flex: 1; min-width: 0; }
   .cli-pct { width: 46px; text-align: right; flex-shrink: 0; }
   .cli-trend { width: 60px; text-align: right; flex-shrink: 0; }
@@ -162,27 +168,27 @@
   .building-txt { color: var(--building); }
   .focus-txt { color: var(--focus); }
 
-  .missed-item { border-top: 1px solid var(--line); padding: 10px 0; font-size: 12.5px; }
+  .missed-item { border-top: 1px solid var(--line-soft); padding: 11px 0; font-size: 12.5px; }
   .missed-item .q { color: var(--text); margin-bottom: 4px; }
   .missed-item .meta { color: var(--muted); }
 
   .gauge-wrap { display: flex; align-items: baseline; gap: 14px; margin-top: 4px; }
   .gauge-num { font-size: 30px; font-weight: 700; color: var(--wire); }
-  .gauge-bar { flex: 1; height: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .gauge-bar { flex: 1; height: 8px; background: var(--line-soft); border-radius: 4px; overflow: hidden; }
   .gauge-fill { height: 100%; background: linear-gradient(90deg, var(--focus), var(--building) 55%, var(--ready) 85%); }
-  .gap-line { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .gap-line { display: flex; justify-content: space-between; font-size: 12.5px; padding: 7px 0; border-top: 1px solid var(--line-soft); }
   .gap-line:first-of-type { border-top: none; }
   .log-entry { font-size: 12.5px; padding: 3px 0; }
   .log-entry .tag { color: var(--dim); }
 
-  .readiness-grid { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+  .readiness-grid { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 4px; }
   .readiness-metric { flex: 1 1 140px; }
-  .readiness-metric .num { font-size: 26px; font-weight: 700; color: var(--wire); }
+  .readiness-metric .num { font-size: 26px; font-weight: 700; color: var(--text); }
   .readiness-metric .num.dim-num { color: var(--dim); font-size: 16px; }
-  .readiness-metric .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .readiness-metric .lbl { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
   .readiness-metric .subnote { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
 
-  .hist-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .hist-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 9px 0; border-top: 1px solid var(--line-soft); }
   .hist-row:first-child { border-top: none; }
   .hist-date { color: var(--muted); width: 140px; flex-shrink: 0; }
   .hist-topic { flex: 1; color: var(--text); }
@@ -191,7 +197,19 @@
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
   .toggle-row input { accent-color: var(--wire); }
 
-  .tutor-progress-bar { height: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .lab-scenario { font-size: 14.5px; line-height: 1.6; margin-bottom: 14px; }
+  .lab-input {
+    width: 100%; min-height: 90px; background: #0E1116; color: #D7DEE3; border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13.5px; line-height: 1.6; resize: vertical;
+  }
+  .lab-input:focus { outline: none; border-color: var(--wire); }
+  .lab-feedback { margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-size: 13.5px; line-height: 1.55; display: none; }
+  .lab-feedback.correct { display: block; background: var(--ready-tint); border: 1px solid var(--ready); color: #145C33; }
+  .lab-feedback.incorrect { display: block; background: var(--focus-tint); border: 1px solid var(--focus); color: #8A2A22; }
+  .lab-answer-reveal { margin-top: 10px; font-size: 12.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  .tutor-progress-bar { height: 8px; background: var(--line-soft); border-radius: 4px; overflow: hidden; margin-top: 10px; }
   .tutor-progress-fill { height: 100%; background: var(--wire); }
   .tutor-report { font-size: 13px; line-height: 1.7; margin-top: 14px; white-space: pre-wrap; }
   .tutor-report-meta { font-size: 11px; color: var(--dim); margin-top: 10px; }
@@ -201,7 +219,7 @@
   @media (max-width: 560px) {
     .frame { margin: 0; border-radius: 0; border: none; }
     .cli-trend { display: none; }
-    .content { padding: 18px 16px 24px; }
+    .content { padding: 20px 18px 26px; }
   }
 </style>
 </head>
@@ -217,7 +235,7 @@
         <svg width="30" height="30" viewBox="0 0 30 30">
           <circle class="track" cx="15" cy="15" r="12" stroke-width="3"></circle>
           <circle class="fill" id="quotaRingFill" cx="15" cy="15" r="12" stroke-width="3"
-                  stroke="#4FBE85" stroke-dasharray="75.4" stroke-dashoffset="0"
+                  stroke="#1F9D55" stroke-dasharray="75.4" stroke-dashoffset="0"
                   transform="rotate(-90 15 15)"></circle>
         </svg>
       </div>
@@ -225,19 +243,21 @@
   </div>
 
   <div class="toolbar">
-    <button class="ghost-btn" id="journeyBtn">agent --report --journey</button>
-    <button class="ghost-btn" id="tutorBtn">tutor --status</button>
-    <button class="ghost-btn" id="historyBtn">show exam-history</button>
+    <button class="ghost-btn" id="journeyBtn">Progress &amp; coaching</button>
+    <button class="ghost-btn" id="tutorBtn">AI tutor</button>
+    <button class="ghost-btn" id="labBtn">CLI lab</button>
+    <button class="ghost-btn" id="historyBtn">History</button>
   </div>
 
   <div class="content">
     <div id="journeyPanel" class="box" style="display:none;"></div>
     <div id="tutorPanel" class="box" style="display:none;"></div>
+    <div id="labPanel" class="box" style="display:none;"></div>
     <div id="historyPanel" class="box" style="display:none;"></div>
 
-    <p><span class="prompt">$</span> generate-exam --configure<span class="cursor"></span></p>
+    <p class="muted" style="font-size:13.5px; margin-bottom:4px;">Set up your practice exam</p>
     <div class="box">
-      <div class="section-title">--domain</div>
+      <div class="section-title">Domain</div>
       <div class="flag-group" id="topicFlags">
         <div class="flag selected" data-value="All Domains (Full Exam)">all</div>
         <div class="flag" data-value="1.0 Network Fundamentals">1.0 fundamentals</div>
@@ -249,7 +269,7 @@
       </div>
 
       <div class="field">
-        <div class="section-title">--topic (optional, more specific than --domain)</div>
+        <div class="section-title">Focus on a specific topic (optional)</div>
         <div class="topic-search-wrap">
           <input type="text" class="topic-search-input" id="topicSearchInput" placeholder="search e.g. OSPF, VLANs, ACLs, NAT, subnetting...">
           <div class="topic-suggestions" id="topicSuggestions"></div>
@@ -258,7 +278,7 @@
       </div>
 
       <div class="field">
-        <div class="section-title">--count</div>
+        <div class="section-title">Number of questions</div>
         <div class="flag-group" id="countFlags">
           <div class="flag" data-value="1">1</div>
           <div class="flag" data-value="5">5</div>
@@ -273,7 +293,7 @@
         <button class="small-btn" id="clearFocusBtn">clear</button>
       </div>
 
-      <button class="run-btn" id="generateBtn">run exam</button>
+      <button class="run-btn" id="generateBtn">Start exam</button>
     </div>
 
     <div id="status" class="muted" style="margin-top: 14px;"></div>
@@ -328,6 +348,9 @@ const CCNA_TOPICS = [
   { label: "REST API characteristics", domain: "6.0 Automation & Programmability" },
   { label: "JSON data encoding", domain: "6.0 Automation & Programmability" },
   { label: "Configuration management tools (Puppet/Chef/Ansible)", domain: "6.0 Automation & Programmability" },
+  { label: "CLI navigation and modes (user/privileged/global config)", domain: "1.0 Network Fundamentals" },
+  { label: "Basic device configuration (hostname, passwords, banners)", domain: "1.0 Network Fundamentals" },
+  { label: "Interpreting show command output", domain: "1.0 Network Fundamentals" },
 ];
 
 async function safeFetch(url, options = {}) {
@@ -535,6 +558,7 @@ async function fetchJourney() {
   const wasOpen = panel.style.display === 'block';
   document.getElementById('historyPanel').style.display = 'none';
   document.getElementById('tutorPanel').style.display = 'none';
+  document.getElementById('labPanel').style.display = 'none';
   if (wasOpen) { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<p class="muted">Analyzing your session history...</p>';
@@ -582,6 +606,7 @@ async function toggleTutor() {
   const wasOpen = panel.style.display === 'block';
   document.getElementById('journeyPanel').style.display = 'none';
   document.getElementById('historyPanel').style.display = 'none';
+  document.getElementById('labPanel').style.display = 'none';
   if (wasOpen) { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<p class="muted">Checking tutor status...</p>';
@@ -615,10 +640,103 @@ async function requestTutorSession() {
   }
 }
 
+let currentLab = null;
+
+function renderLabIntro() {
+  const panel = document.getElementById('labPanel');
+  panel.innerHTML = `
+    <div class="section-title">CLI lab practice</div>
+    <p style="font-size:13.5px;">Get a real Cisco IOS configuration scenario and type the actual command — graded by AI, not multiple choice.</p>
+    <button class="run-btn alt" id="newLabBtn">generate a lab</button>
+  `;
+  document.getElementById('newLabBtn').addEventListener('click', generateLab);
+}
+
+async function generateLab() {
+  const panel = document.getElementById('labPanel');
+  panel.innerHTML = '<p class="muted">Generating a lab scenario...</p>';
+  try {
+    currentLab = await safeFetch('/generate-lab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: selectedTopicSearchItems[0] || null })
+    });
+    renderLabScenario();
+    refreshQuotaRing();
+  } catch (err) {
+    panel.innerHTML = `<p class="muted">Error: ${escapeHtml(err.message)}</p><button class="run-btn alt" id="newLabBtn">try again</button>`;
+    document.getElementById('newLabBtn').addEventListener('click', generateLab);
+  }
+}
+
+function renderLabScenario() {
+  const panel = document.getElementById('labPanel');
+  panel.innerHTML = `
+    <div class="section-title">CLI lab · ${escapeHtml((currentLab.concept || currentLab.domain || '').replace(/^[0-9.]+\s*/, ''))}</div>
+    <div class="lab-scenario">${escapeHtml(currentLab.scenario)}</div>
+    <textarea class="lab-input" id="labAnswerInput" placeholder="Type the command(s) here..." spellcheck="false"></textarea>
+    <button class="run-btn alt" id="checkLabBtn" style="margin-top:12px;">check answer</button>
+    <div class="lab-feedback" id="labFeedback"></div>
+  `;
+  document.getElementById('checkLabBtn').addEventListener('click', checkLabAnswer);
+}
+
+async function checkLabAnswer() {
+  const btn = document.getElementById('checkLabBtn');
+  const input = document.getElementById('labAnswerInput');
+  const feedbackEl = document.getElementById('labFeedback');
+  const userAnswer = input.value.trim();
+  if (!userAnswer) {
+    feedbackEl.className = 'lab-feedback incorrect';
+    feedbackEl.textContent = 'Type a command before checking.';
+    return;
+  }
+  setButtonLoading(btn, true, 'checking...', 'check answer');
+  try {
+    const result = await safeFetch('/check-lab-answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scenario: currentLab.scenario, expected_answer: currentLab.expected_answer,
+        acceptable_variations: currentLab.acceptable_variations || [], user_answer: userAnswer
+      })
+    });
+    feedbackEl.className = 'lab-feedback ' + (result.correct ? 'correct' : 'incorrect');
+    feedbackEl.textContent = (result.correct ? '✓ ' : '✗ ') + result.feedback;
+    if (!result.correct) {
+      feedbackEl.innerHTML += `<div class="lab-answer-reveal">Expected: ${escapeHtml(currentLab.expected_answer)}</div>`;
+    }
+    const panel = document.getElementById('labPanel');
+    if (!document.getElementById('nextLabBtn')) {
+      panel.insertAdjacentHTML('beforeend', `<button class="ghost-btn" id="nextLabBtn" style="margin-top:12px;">try another lab</button>`);
+      document.getElementById('nextLabBtn').addEventListener('click', generateLab);
+    }
+    refreshQuotaRing();
+  } catch (err) {
+    feedbackEl.className = 'lab-feedback incorrect';
+    feedbackEl.textContent = 'Error: ' + err.message;
+  } finally {
+    setButtonLoading(btn, false, '', 'check answer');
+  }
+}
+
+async function toggleLab() {
+  const panel = document.getElementById('labPanel');
+  const wasOpen = panel.style.display === 'block';
+  document.getElementById('journeyPanel').style.display = 'none';
+  document.getElementById('tutorPanel').style.display = 'none';
+  document.getElementById('historyPanel').style.display = 'none';
+  if (wasOpen) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  if (currentLab) { renderLabScenario(); } else { renderLabIntro(); }
+}
+document.getElementById('labBtn').addEventListener('click', toggleLab);
+
 async function toggleHistory() {
   const panel = document.getElementById('historyPanel');
   document.getElementById('journeyPanel').style.display = 'none';
   document.getElementById('tutorPanel').style.display = 'none';
+  document.getElementById('labPanel').style.display = 'none';
   if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<p class="muted">Loading history...</p>';
@@ -627,7 +745,7 @@ async function toggleHistory() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     if (!data.length) { panel.innerHTML = '<p class="muted">No past exam attempts yet.</p>'; return; }
-    panel.innerHTML = `<div class="section-title">show exam-history --last 15</div>` + data.map(s => `
+    panel.innerHTML = `<div class="section-title">Your last 15 attempts</div>` + data.map(s => `
       <div class="hist-row">
         <span class="hist-date">${escapeHtml(s.timestamp)}</span>
         <span class="hist-topic">${escapeHtml(s.topic)}</span>
@@ -678,6 +796,8 @@ function updateExamNav() {
 
   if (!track || !pos) return;
 
+  const isLastQuestion = Array.isArray(currentQuestions) && currentQuestionIndex >= currentQuestions.length - 1;
+
   if (Array.isArray(currentQuestions) && currentQuestions.length > 0) {
     track.style.transform = `translateX(-${currentQuestionIndex * 100}%)`;
     pos.textContent = `Question ${currentQuestionIndex + 1} of ${currentQuestions.length}`;
@@ -686,15 +806,15 @@ function updateExamNav() {
   }
 
   if (prevBtn) prevBtn.disabled = currentQuestionIndex <= 0;
-  if (nextBtn) nextBtn.disabled = !Array.isArray(currentQuestions) || currentQuestionIndex >= currentQuestions.length - 1;
-}
+  if (nextBtn) nextBtn.disabled = !Array.isArray(currentQuestions) || isLastQuestion;
 
-// Show submit button only when user reaches the last question
+  // Submit only appears once you've actually reached the last question -
+  // re-checked here so it updates live as you navigate, not just once at load.
   const submitBtn = document.getElementById('submitBtn');
   if (submitBtn) {
-    const isLastQuestion = Array.isArray(currentQuestions) && currentQuestionIndex >= currentQuestions.length - 1;
     submitBtn.style.display = isLastQuestion ? 'inline-block' : 'none';
   }
+}
 
 function initExamNavigation() {
   const prevQBtn = document.getElementById('prevQBtn');
@@ -736,7 +856,7 @@ async function generateExam() {
   examSubmitted = false;
   output.innerHTML = '';
   status.textContent = `Generating ${selectedCount} CCNA question(s)... this can take a little while for larger exams.`;
-  setButtonLoading(genBtn, true, 'generating...', 'run exam');
+  setButtonLoading(genBtn, true, 'Generating...', 'Start exam');
 
   try {
    currentQuestions = await safeFetch('/generate-exam', {
@@ -780,9 +900,9 @@ async function generateExam() {
       </div>
     `;
 
+submitWrap.innerHTML = `<button class="run-btn alt" id="submitBtn" style="display:none;">Submit exam</button>`;
+document.getElementById('submitBtn').addEventListener('click', submitExam);
 initExamNavigation();
-submitWrap.innerHTML = `<button class="run-btn alt" id="submitBtn" style="display:none;">review and submit exam</button>`;
-    document.getElementById('submitBtn').addEventListener('click', submitExam);
 
     if (pendingFocusDomains.length) {
       pendingFocusDomains = [];
@@ -791,7 +911,7 @@ submitWrap.innerHTML = `<button class="run-btn alt" id="submitBtn" style="displa
   } catch (err) {
     status.textContent = 'Error: ' + err.message;
   } finally {
-    setButtonLoading(genBtn, false, '', 'run exam');
+    setButtonLoading(genBtn, false, '', 'Start exam');
     refreshQuotaRing();
   }
 }
@@ -812,7 +932,7 @@ async function submitExam() {
     return;
   }
   submitExam._confirmed = false;
-  setButtonLoading(submitBtn, true, 'submitting...', 'submit final exam');
+  setButtonLoading(submitBtn, true, 'Submitting...', 'Submit exam');
 
   let correctCount = 0;
   const totalQuestions = currentQuestions.length;
@@ -854,7 +974,7 @@ async function submitExam() {
   const statusLine = document.getElementById('statusLine');
   statusLine.innerHTML = `
     <div class="status-line ${passed ? 'pass' : 'fail'}">
-      <span>exit code: ${passed ? 'PASS' : 'FAIL'}</span>
+      <span>Result: ${passed ? 'PASS' : 'FAIL'}</span>
       <span class="big">${percentage}% · ${correctCount}/${totalQuestions} correct</span>
     </div>`;
 
@@ -862,6 +982,15 @@ async function submitExam() {
   document.getElementById('reviewOnlyToggle').checked = false;
   submitBtn.style.display = 'none';
   examSubmitted = true;
+  // Switch out of carousel/slideshow mode into a plain stacked layout for
+  // review - this is the actual fix for "show missed questions" not working:
+  // the toggle was hiding cards inside a fixed-transform flex carousel,
+  // which doesn't reflow sanely when some cards disappear.
+  const examTrack = document.getElementById('examTrack');
+  if (examTrack) examTrack.classList.add('reviewing');
+  document.getElementById('prevQBtn').style.display = 'none';
+  document.getElementById('nextQBtn').style.display = 'none';
+  document.getElementById('examPosition').style.display = 'none';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   try {
@@ -874,7 +1003,7 @@ async function submitExam() {
     if (data.journey) {
       const box = document.createElement('div');
       box.className = 'box';
-      box.innerHTML = `<div class="section-title">! show ccna domain-status</div>${domainRowsToHtml(data.journey.domain_rows)}`;
+      box.innerHTML = `<div class="section-title">Domain breakdown</div>${domainRowsToHtml(data.journey.domain_rows)}`;
       statusLine.appendChild(box);
     }
     if (missedQuestionsList.length) {
