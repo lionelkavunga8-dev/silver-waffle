@@ -163,6 +163,15 @@ def init_db():
             PRIMARY KEY (session_id, question_hash)
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS question_bank (
+            question_hash TEXT PRIMARY KEY,
+            question_json TEXT NOT NULL,
+            domain TEXT,
+            concept TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     # Safe no-op migration for any pre-existing table missing newer columns.
     cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS session_id TEXT")
     cursor.execute("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS domain_stats TEXT")
@@ -586,6 +595,69 @@ def _record_question_history(sid, questions):
         pass
 
 
+def _add_to_bank(questions):
+    """Every freshly-generated question (from ANY request, personalized or
+    not) gets saved permanently here - a shared, ever-growing pool that
+    future generic requests can draw from instead of calling Gemini again.
+    Domain/concept tags stay accurate regardless of why a question was
+    originally generated, so there's no correctness issue reusing it later."""
+    if not questions:
+        return
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        for q in questions:
+            h = _question_hash(q.get("question", ""))
+            cursor.execute(
+                """INSERT INTO question_bank (question_hash, question_json, domain, concept)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (question_hash) DO NOTHING""",
+                (h, json.dumps(q), q.get("domain"), q.get("concept")),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _fetch_from_bank(sid, topic, count):
+    """Pull up to `count` questions this session hasn't seen yet from the
+    shared bank. Only used for the generic case (no focus_domains/focus_topics)
+    - personalized requests always go straight to Gemini, since a flat pool
+    can't cleanly replicate weighted/targeted distribution."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        params = [sid]
+        domain_filter = ""
+        if topic in CCNA_DOMAINS:
+            domain_filter = "AND qb.domain = %s"
+            params.append(topic)
+        params.append(count)
+        cursor.execute(
+            f"""SELECT qb.question_json FROM question_bank qb
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM question_history qh
+                    WHERE qh.session_id = %s AND qh.question_hash = qb.question_hash
+                )
+                {domain_filter}
+                ORDER BY RANDOM()
+                LIMIT %s""",
+            params,
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        results = []
+        for r in rows:
+            try:
+                results.append(json.loads(r[0]))
+            except json.JSONDecodeError:
+                continue
+        return results
+    except Exception:
+        return []
+
+
 def _get_recent_question_texts(sid, limit=30):
     try:
         conn = get_db()
@@ -728,25 +800,41 @@ def generate_exam():
 
     count = max(1, min(count, MAX_QUESTIONS_PER_REQUEST))
     avoid_questions = _get_recent_question_texts(sid)
+    is_personalized = bool(focus_domains) or bool(focus_topics)
 
-    try:
-        questions = _call_gemini_for_questions(topic, count, focus_domains, focus_topics, avoid_questions)
-        # Only make a second call if the first one came back meaningfully
-        # short (e.g. malformed/truncated items got filtered out) - one
-        # follow-up request max, to bound quota usage at 2 calls/exam.
-        shortfall = count - len(questions)
-        if shortfall > 0 and len(questions) > 0:
-            try:
-                # Also avoid repeating whatever this same batch just generated.
-                extra_avoid = avoid_questions + [q["question"] for q in questions]
-                extra = _call_gemini_for_questions(topic, shortfall, focus_domains, focus_topics, extra_avoid)
-                questions.extend(extra)
-            except (QuotaExceededError, RuntimeError):
-                pass  # return what we already have rather than fail the exam
-    except QuotaExceededError as e:
-        return jsonify({"error": str(e)}), 429
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 500
+    questions = []
+    if not is_personalized:
+        # Generic request (plain "All Domains" or a single domain, no focus) -
+        # try the shared bank first. Personalized requests always skip this
+        # and go straight to Gemini, since a flat pool can't replicate
+        # weighted/targeted distribution.
+        questions = _fetch_from_bank(sid, topic, count)
+
+    shortfall = count - len(questions)
+    if shortfall > 0:
+        try:
+            fresh = _call_gemini_for_questions(topic, shortfall, focus_domains, focus_topics, avoid_questions)
+            # Only make one follow-up call if that came back meaningfully
+            # short (e.g. malformed/truncated items got filtered out) - bounds
+            # quota usage at 2 Gemini calls/exam even on a full cache miss.
+            inner_shortfall = shortfall - len(fresh)
+            if inner_shortfall > 0 and len(fresh) > 0:
+                try:
+                    extra_avoid = avoid_questions + [q["question"] for q in fresh]
+                    extra = _call_gemini_for_questions(topic, inner_shortfall, focus_domains, focus_topics, extra_avoid)
+                    fresh.extend(extra)
+                except (QuotaExceededError, RuntimeError):
+                    pass  # return what we already have rather than fail the exam
+            _add_to_bank(fresh)
+            questions.extend(fresh)
+        except QuotaExceededError as e:
+            if not questions:
+                return jsonify({"error": str(e)}), 429
+            # Bank already gave us something usable - degrade gracefully
+            # instead of failing an exam that's already partially ready.
+        except RuntimeError as e:
+            if not questions:
+                return jsonify({"error": str(e)}), 500
 
     if not questions:
         return jsonify({"error": "Gemini did not return any usable questions. Please try again."}), 500
